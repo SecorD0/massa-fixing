@@ -938,6 +938,19 @@ impl ProtocolWorker {
         }
     }
 
+    /// Prune checked operations if it has grown too large.
+    fn prune_checked_operations(&mut self) {
+        while self.checked_operations.len() > self.cfg.max_known_operations_size {
+            let e_id = *self
+                .checked_operations
+                .iter()
+                .min_by_key(|(_k, v)| *v)
+                .unwrap()
+                .0; // will not panic (checked above)
+            self.checked_operations.remove(&e_id);
+        }
+    }
+
     /// Prune checked_headers if it is too large
     fn prune_checked_headers(&mut self) {
         while self.checked_headers.len() > self.cfg.max_node_known_blocks_size {
@@ -1078,30 +1091,34 @@ impl ProtocolWorker {
         source_node_id: &NodeId,
     ) -> Option<HashMap<OperationId, Operation>> {
         massa_trace!("protocol.protocol_worker.note_operations_from_node", { "node": source_node_id, "operations": operations });
-        let mut result = HashMap::with_capacity(operations.len());
-        for op in operations.into_iter() {
-            match op.verify_integrity() {
-                Ok(operation_id) => {
-                    result.insert(operation_id, op);
+        let mut new_operations = HashMap::with_capacity(operations.len());
+        for operation in operations.into_iter() {
+            let operation_id = operation.get_operation_id().ok()?;
+
+            // Check operation signature only if not already checked.
+            match self.checked_operations.entry(operation_id) {
+                hash_map::Entry::Occupied(mut occ) => {
+                    *occ.get_mut() = Instant::now();
                 }
-                Err(err) => {
-                    massa_trace!("protocol.protocol_worker.note_operations_from_node.invalid", { "node": source_node_id, "operation": op, "err": format!("{:?}", err) });
-                    warn!(
-                        "node {:?} sent an invalid operation: {:?}",
-                        source_node_id, err
-                    );
-                    return None;
+                hash_map::Entry::Vacant(vac) => {
+                    // check signature
+                    operation.verify_signature().ok()?;
+                    vac.insert(Instant::now());
+                    new_operations.insert(operation_id, operation);
                 }
-            }
+            };
         }
         // add to known ops
         if let Some(node_info) = self.active_nodes.get_mut(source_node_id) {
             node_info.insert_known_ops(
-                result.iter().map(|(id, _)| (*id, Instant::now())).collect(),
+                new_operations
+                    .iter()
+                    .map(|(id, _)| (id.clone(), Instant::now()))
+                    .collect(),
                 self.cfg.max_known_ops_size,
             );
         }
-        Some(result)
+        Some(new_operations)
     }
 
     /// Note endorsements coming from a given node,

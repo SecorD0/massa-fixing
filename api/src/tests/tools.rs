@@ -111,6 +111,7 @@ pub fn get_protocol_config() -> ProtocolConfig {
         max_send_wait: UTime::from(100),
         max_known_ops_size: 1000,
         max_known_endorsements_size: 1000,
+        max_known_operations_size: 1000,
     }
 }
 pub fn get_pool_config() -> PoolConfig {
