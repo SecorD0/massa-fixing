@@ -241,6 +241,8 @@ pub struct ProtocolWorker {
     block_wishlist: HashSet<BlockId>,
     /// List of processed endorsements
     checked_endorsements: HashMap<EndorsementId, Instant>,
+    /// List of processed operations
+    checked_operations: HashMap<OperationId, Instant>,
     /// List of processed headers
     checked_headers: HashMap<BlockId, (Vec<EndorsementId>, Instant)>,
 }
@@ -278,6 +280,7 @@ impl ProtocolWorker {
             active_nodes: HashMap::new(),
             block_wishlist: HashSet::new(),
             checked_endorsements: HashMap::new(),
+            checked_operations: Default::default(),
             checked_headers: HashMap::new(),
         }
     }
