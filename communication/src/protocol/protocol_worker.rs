@@ -1091,9 +1091,15 @@ impl ProtocolWorker {
         source_node_id: &NodeId,
     ) -> Option<HashMap<OperationId, Operation>> {
         massa_trace!("protocol.protocol_worker.note_operations_from_node", { "node": source_node_id, "operations": operations });
-        let mut new_operations = HashMap::with_capacity(operations.len());
+        let length = operations.len();
+        let mut new_operations = HashMap::with_capacity(length);
+        let mut received_ids = HashMap::with_capacity(length);
         for operation in operations.into_iter() {
             let operation_id = operation.get_operation_id().ok()?;
+
+            // Note: we always want to update the node's view of known operations,
+            // even if we cached the check previously.
+            received_ids.insert(operation_id.clone(), Instant::now());
 
             // Check operation signature only if not already checked.
             match self.checked_operations.entry(operation_id) {
@@ -1110,13 +1116,7 @@ impl ProtocolWorker {
         }
         // add to known ops
         if let Some(node_info) = self.active_nodes.get_mut(source_node_id) {
-            node_info.insert_known_ops(
-                new_operations
-                    .iter()
-                    .map(|(id, _)| (id.clone(), Instant::now()))
-                    .collect(),
-                self.cfg.max_known_ops_size,
-            );
+            node_info.insert_known_ops(received_ids, self.cfg.max_known_ops_size);
         }
         Some(new_operations)
     }
