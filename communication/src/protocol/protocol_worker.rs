@@ -988,7 +988,9 @@ impl ProtocolWorker {
         let mut seen_ops: HashMap<OperationId, (usize, u64)> =
             HashMap::with_capacity(block.operations.len());
         let serialization_context = models::with_serialization_context(|context| context.clone());
-        for (idx, op) in block.operations.iter().enumerate() {
+
+        // Perform checks on the operations that relate to the block in which they have been included.
+        for op in block.operations.iter() {
             // check validity period
             if !(op
                 .get_validity_range(self.operation_validity_periods)
@@ -1016,27 +1018,21 @@ impl ProtocolWorker {
                     return Ok(None);
                 }
             }
+        }
 
-            // check integrity (signature) and reuse
-            match op.verify_integrity() {
-                Ok(op_id) => {
-                    if seen_ops
-                        .insert(op_id, (idx, op.content.expire_period))
-                        .is_some()
-                    {
-                        // reused
-                        massa_trace!("protocol.protocol_worker.note_block_from_node.err_op_reused",
-                            { "node": source_node_id,"block_id":block_id, "block": block, "op": op });
-                        return Ok(None);
-                    }
-                    op_ids.push(op_id);
-                }
-                Err(err) => {
-                    massa_trace!("protocol.protocol_worker.note_block_from_node.err_op_integrity",
-                        { "node": source_node_id,"block_id":block_id, "block": block, "op": op, "err": format!("{:?}", err)});
-                    return Ok(None);
-                }
-            }
+        // Perform general checks on the operations,
+        // and do not propagate them.
+        if self
+            .note_operations_from_node(block.operations.clone(), source_node_id, false)
+            .await
+            .is_err()
+        {
+            warn!(
+                "node {:?} sent us critically incorrect operation",
+                source_node_id
+            );
+            let _ = self.ban_node(source_node_id).await;
+            return Ok(None);
         }
 
         // check root hash
@@ -1050,18 +1046,6 @@ impl ProtocolWorker {
                     { "node": source_node_id,"block_id":block_id, "block": block });
                 return Ok(None);
             }
-        }
-
-        // send operations to pool, but do not repropagate them
-        if !seen_ops.is_empty() {
-            self.send_protocol_pool_event(ProtocolPoolEvent::ReceivedOperations {
-                operations: seen_ops
-                    .iter()
-                    .map(|(op_id, (idx, _))| (*op_id, block.operations[*idx].clone()))
-                    .collect(),
-                propagate: false,
-            })
-            .await;
         }
 
         // add to known blocks, operations, endorsements
@@ -1089,6 +1073,7 @@ impl ProtocolWorker {
         &mut self,
         operations: Vec<Operation>,
         source_node_id: &NodeId,
+        propagate: bool,
     ) -> Result<(), CommunicationError> {
         massa_trace!("protocol.protocol_worker.note_operations_from_node", { "node": source_node_id, "operations": operations });
         let length = operations.len();
@@ -1099,7 +1084,15 @@ impl ProtocolWorker {
 
             // Note: we always want to update the node's view of known operations,
             // even if we cached the check previously.
-            received_ids.insert(operation_id.clone(), Instant::now());
+            let was_present = received_ids.insert(operation_id.clone(), Instant::now());
+
+            // Node sent redundant operations in this batch,
+            // ban the node.
+            if was_present.is_some() {
+                return Err(CommunicationError::GeneralProtocolError(
+                    "Node sent redundant operations in a batch.".to_string(),
+                ));
+            }
 
             // Check operation signature only if not already checked.
             match self.checked_operations.entry(operation_id) {
@@ -1124,10 +1117,12 @@ impl ProtocolWorker {
             // Add to pool, propagate when received outside of a header.
             self.send_protocol_pool_event(ProtocolPoolEvent::ReceivedOperations {
                 operations: new_operations,
-                propagate: true,
+                propagate,
             })
             .await;
         }
+
+        self.prune_checked_operations();
 
         Ok(())
     }
@@ -1286,8 +1281,10 @@ impl ProtocolWorker {
             }
             NetworkEvent::ReceivedOperations { node, operations } => {
                 massa_trace!("protocol.protocol_worker.on_network_event.received_operations", { "node": node, "operations": operations});
+
+                // Perform general checks on the operations, and propagate them.
                 if self
-                    .note_operations_from_node(operations, &node)
+                    .note_operations_from_node(operations, &node, true)
                     .await
                     .is_err()
                 {
