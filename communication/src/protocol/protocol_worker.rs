@@ -1085,17 +1085,17 @@ impl ProtocolWorker {
 
     /// Check operations
     /// Does not ban if the operation is invalid
-    fn note_operations_from_node(
+    async fn note_operations_from_node(
         &mut self,
         operations: Vec<Operation>,
         source_node_id: &NodeId,
-    ) -> Option<HashMap<OperationId, Operation>> {
+    ) -> Result<(), CommunicationError> {
         massa_trace!("protocol.protocol_worker.note_operations_from_node", { "node": source_node_id, "operations": operations });
         let length = operations.len();
         let mut new_operations = HashMap::with_capacity(length);
         let mut received_ids = HashMap::with_capacity(length);
         for operation in operations.into_iter() {
-            let operation_id = operation.get_operation_id().ok()?;
+            let operation_id = operation.get_operation_id()?;
 
             // Note: we always want to update the node's view of known operations,
             // even if we cached the check previously.
@@ -1108,17 +1108,28 @@ impl ProtocolWorker {
                 }
                 hash_map::Entry::Vacant(vac) => {
                     // check signature
-                    operation.verify_signature().ok()?;
+                    operation.verify_signature()?;
                     vac.insert(Instant::now());
                     new_operations.insert(operation_id, operation);
                 }
             };
         }
+
         // add to known ops
         if let Some(node_info) = self.active_nodes.get_mut(source_node_id) {
             node_info.insert_known_ops(received_ids, self.cfg.max_known_ops_size);
         }
-        Some(new_operations)
+
+        if !new_operations.is_empty() {
+            // Add to pool, propagate when received outside of a header.
+            self.send_protocol_pool_event(ProtocolPoolEvent::ReceivedOperations {
+                operations: new_operations,
+                propagate: true,
+            })
+            .await;
+        }
+
+        Ok(())
     }
 
     /// Note endorsements coming from a given node,
@@ -1275,15 +1286,11 @@ impl ProtocolWorker {
             }
             NetworkEvent::ReceivedOperations { node, operations } => {
                 massa_trace!("protocol.protocol_worker.on_network_event.received_operations", { "node": node, "operations": operations});
-                if let Some(operations) = self.note_operations_from_node(operations, &node) {
-                    if !operations.is_empty() {
-                        self.send_protocol_pool_event(ProtocolPoolEvent::ReceivedOperations {
-                            operations,
-                            propagate: true,
-                        })
-                        .await;
-                    }
-                } else {
+                if self
+                    .note_operations_from_node(operations, &node)
+                    .await
+                    .is_err()
+                {
                     warn!("node {:?} sent us critically incorrect operation", node,);
                     let _ = self.ban_node(&node).await;
                 }
