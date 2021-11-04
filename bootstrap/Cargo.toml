@@ -23,6 +23,7 @@ crypto = { path = "../crypto" }
 logging = {path = "../logging"}
 models = { path = "../models" }
 time = {path = "../time"}
+massa-constant = { path = "../massa-constant" }
 
 [dev-dependencies]
 bitvec = { version = "0.22", features = ["serde"] }

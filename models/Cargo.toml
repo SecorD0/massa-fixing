@@ -21,7 +21,7 @@ thiserror = "1.0"
 # custom modules
 crypto = {path = "../crypto"}
 time = {path = "../time"}
-
+massa-constant = { path = "../massa-constant" }
 [dev-dependencies]
 pretty_assertions = "0.7"
 serial_test = "0.5"

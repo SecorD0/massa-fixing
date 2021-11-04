@@ -2,10 +2,11 @@
 
 use super::messages::BootstrapMessage;
 use crate::establisher::Duplex;
-use crate::{error::BootstrapError, messages::BOOTSTRAP_RANDOMNES_SIZE_BYTES};
+use massa_constant::{BOOTSTRAP_RANDOMNES_SIZE_BYTES, SIGNATURE_SIZE_BYTES};
+use crate::error::BootstrapError;
 use crypto::{
     hash::Hash,
-    signature::{PublicKey, Signature, SIGNATURE_SIZE_BYTES},
+    signature::{PublicKey, Signature},
     verify_signature,
 };
 use models::{with_serialization_context, DeserializeCompact, DeserializeMinBEInt};

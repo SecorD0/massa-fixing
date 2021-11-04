@@ -1,9 +1,10 @@
 // Copyright (c) 2021 MASSA LABS <info@massa.net>
 
 //! The network worker actually does the job of managing connections
+use massa_constant::CHANNEL_SIZE;
 use super::{
     common::{ConnectionClosureReason, ConnectionId},
-    config::{NetworkConfig, CHANNEL_SIZE},
+    config::NetworkConfig,
     establisher::{Establisher, Listener, ReadHalf, WriteHalf},
     handshake_worker::{HandshakeReturnType, HandshakeWorker},
     node_worker::{NodeCommand, NodeEvent, NodeEventType, NodeWorker},

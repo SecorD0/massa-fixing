@@ -22,10 +22,11 @@ use protocol_exports::{ProtocolCommandSender, ProtocolEventReceiver};
 
 use crate::error::ConsensusError;
 use crate::pos::ExportProofOfStake;
+use massa_constant::CHANNEL_SIZE;
 
 use super::{
     block_graph::*,
-    config::{ConsensusConfig, CHANNEL_SIZE},
+    config::ConsensusConfig,
     consensus_worker::{
         ConsensusCommand, ConsensusEvent, ConsensusManagementCommand, ConsensusWorker,
     },

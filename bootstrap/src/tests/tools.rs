@@ -1,8 +1,8 @@
 // Copyright (c) 2021 MASSA LABS <info@massa.net>
 
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::SocketAddr;
 use std::str::FromStr;
-
+use massa_constant::BASE_BOOTSTRAP_IP;
 use bitvec::prelude::*;
 use consensus::ledger::LedgerChanges;
 use tokio::{sync::mpsc::Receiver, time::sleep};
@@ -27,8 +27,6 @@ use super::mock_establisher::Duplex;
 use crate::config::BootstrapConfig;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
-
-pub const BASE_BOOTSTRAP_IP: IpAddr = IpAddr::V4(Ipv4Addr::new(169, 202, 0, 10));
 
 pub fn get_dummy_block_id(s: &str) -> BlockId {
     BlockId(Hash::hash(s.as_bytes()))

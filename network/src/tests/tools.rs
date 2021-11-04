@@ -5,6 +5,7 @@ use super::mock_establisher::MockEstablisherInterface;
 use super::{mock_establisher, tools};
 use crate::handshake_worker::HandshakeWorker;
 use crate::messages::Message;
+use massa_constant::BASE_NETWORK_CONTROLLER_IP;
 use crate::start_network_controller;
 use crate::{
     NetworkCommandSender, NetworkConfig, NetworkEvent, NetworkEventReceiver, NetworkManager,
@@ -18,7 +19,7 @@ use models::{
 use std::str::FromStr;
 use std::{
     future::Future,
-    net::{IpAddr, Ipv4Addr, SocketAddr},
+    net::{IpAddr, SocketAddr},
     path::Path,
     time::Duration,
 };
@@ -27,8 +28,6 @@ use time::UTime;
 use tokio::time::sleep;
 use tokio::{sync::oneshot, task::JoinHandle, time::timeout};
 use tracing::trace;
-
-pub const BASE_NETWORK_CONTROLLER_IP: IpAddr = IpAddr::V4(Ipv4Addr::new(169, 202, 0, 10));
 
 pub fn get_dummy_block_id(s: &str) -> BlockId {
     BlockId(Hash::hash(s.as_bytes()))

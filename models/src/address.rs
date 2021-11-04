@@ -1,16 +1,14 @@
 // Copyright (c) 2021 MASSA LABS <info@massa.net>
-
+use massa_constant::{ADDRESS_SIZE_BYTES};
 use crate::hhasher::{HHashMap, HHashSet, PreHashed};
 use crate::ledger::LedgerData;
 use crate::{Amount, ModelsError};
 use crypto::{
-    hash::{Hash, HASH_SIZE_BYTES},
+    hash::Hash,
     signature::PublicKey,
 };
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
-
-pub const ADDRESS_SIZE_BYTES: usize = HASH_SIZE_BYTES;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct Address(Hash);

@@ -1,17 +1,17 @@
 // Copyright (c) 2021 MASSA LABS <info@massa.net>
-
+use massa_constant::{ADDRESS_SIZE_BYTES, OPERATION_ID_SIZE_BYTES, PUBLIC_KEY_SIZE_BYTES, SIGNATURE_SIZE_BYTES};
 use crate::{
     address::AddressHashSet,
     hhasher::{HHashMap, HHashSet, PreHashed},
     serialization::{
         array_from_slice, DeserializeCompact, DeserializeVarInt, SerializeCompact, SerializeVarInt,
     },
-    Address, Amount, ModelsError, ADDRESS_SIZE_BYTES,
+    Address, Amount, ModelsError,
 };
 use crypto::{
-    hash::{Hash, HASH_SIZE_BYTES},
+    hash::Hash,
     signature::{
-        verify_signature, PublicKey, Signature, PUBLIC_KEY_SIZE_BYTES, SIGNATURE_SIZE_BYTES,
+        verify_signature, PublicKey, Signature,
     },
 };
 use num_enum::{IntoPrimitive, TryFromPrimitive};
@@ -19,8 +19,6 @@ use serde::{Deserialize, Serialize};
 use std::convert::TryInto;
 use std::fmt::Formatter;
 use std::{ops::RangeInclusive, str::FromStr};
-
-pub const OPERATION_ID_SIZE_BYTES: usize = HASH_SIZE_BYTES;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
 pub struct OperationId(Hash);

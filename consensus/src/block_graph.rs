@@ -7,6 +7,7 @@ use crate::{
     ledger::{Ledger, LedgerChanges, LedgerSubset, OperationLedgerInterface},
     pos::{OperationRollInterface, ProofOfStake, RollCounts, RollUpdate, RollUpdates},
 };
+use massa_constant::{ADDRESS_SIZE_BYTES, BLOCK_ID_SIZE_BYTES};
 use crypto::hash::Hash;
 use crypto::signature::derive_public_key;
 use models::address::{AddressHashMap, AddressHashSet};
@@ -18,7 +19,7 @@ use models::{
     BlockHashSet, BlockHeader, BlockHeaderContent, BlockId, DeserializeCompact, DeserializeVarInt,
     EndorsementId, ModelsError, Operation, OperationHashMap, OperationHashSet,
     OperationSearchResult, OperationSearchResultBlockStatus, OperationSearchResultStatus,
-    SerializeCompact, SerializeVarInt, Slot, ADDRESS_SIZE_BYTES, BLOCK_ID_SIZE_BYTES,
+    SerializeCompact, SerializeVarInt, Slot,
 };
 use serde::{Deserialize, Serialize};
 use std::mem;

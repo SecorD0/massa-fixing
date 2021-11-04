@@ -6,12 +6,11 @@ use super::{
     },
     with_serialization_context,
 };
+use massa_constant::SLOT_KEY_SIZE;
 use crate::error::ModelsError;
 use crypto::hash::Hash;
 use serde::{Deserialize, Serialize};
 use std::{cmp::Ordering, convert::TryInto};
-
-pub const SLOT_KEY_SIZE: usize = 9;
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Slot {

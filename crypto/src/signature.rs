@@ -5,10 +5,7 @@ use crate::error::CryptoError;
 use bs58;
 use secp256k1::{Message, Secp256k1};
 use std::{convert::TryInto, str::FromStr};
-
-pub const PRIVATE_KEY_SIZE_BYTES: usize = 32;
-pub const PUBLIC_KEY_SIZE_BYTES: usize = 33;
-pub const SIGNATURE_SIZE_BYTES: usize = 64;
+use massa_constant::{PRIVATE_KEY_SIZE_BYTES, PUBLIC_KEY_SIZE_BYTES, SIGNATURE_SIZE_BYTES};
 
 // Per-thread signature engine, initiated lazily on first per-thread use.
 thread_local!(static SIGNATURE_ENGINE: SignatureEngine = SignatureEngine(Secp256k1::new()));

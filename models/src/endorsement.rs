@@ -1,24 +1,20 @@
 // Copyright (c) 2021 MASSA LABS <info@massa.net>
 
+use massa_constant::{BLOCK_ID_SIZE_BYTES, ENDORSEMENT_ID_SIZE_BYTES, PUBLIC_KEY_SIZE_BYTES, SIGNATURE_SIZE_BYTES};
 use crate::{
     hhasher::{HHashMap, HHashSet, PreHashed},
     serialization::{
         array_from_slice, DeserializeCompact, DeserializeVarInt, SerializeCompact, SerializeVarInt,
     },
-    with_serialization_context, BlockId, ModelsError, Slot, BLOCK_ID_SIZE_BYTES,
+    with_serialization_context, BlockId, ModelsError, Slot,
 };
 use crypto::{
-    hash::{Hash, HASH_SIZE_BYTES},
+    hash::Hash,
     sign,
-    signature::{
-        verify_signature, PrivateKey, PublicKey, Signature, PUBLIC_KEY_SIZE_BYTES,
-        SIGNATURE_SIZE_BYTES,
-    },
+    signature::{verify_signature, PrivateKey, PublicKey, Signature},
 };
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
-
-pub const ENDORSEMENT_ID_SIZE_BYTES: usize = HASH_SIZE_BYTES;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
 pub struct EndorsementId(Hash);

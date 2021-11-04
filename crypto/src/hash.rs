@@ -3,9 +3,7 @@
 use crate::error::CryptoError;
 use bitcoin_hashes;
 use std::{convert::TryInto, str::FromStr};
-
-pub const HASH_SIZE_BYTES: usize = 32;
-
+use massa_constant::HASH_SIZE_BYTES;
 #[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash)]
 pub struct Hash(bitcoin_hashes::sha256::Hash);
 

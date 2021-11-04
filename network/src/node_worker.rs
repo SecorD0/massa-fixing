@@ -1,8 +1,8 @@
 // Copyright (c) 2021 MASSA LABS <info@massa.net>
-
+use massa_constant::NODE_SEND_CHANNEL_SIZE;
 use super::{
     binders::{ReadBinder, WriteBinder},
-    config::{NetworkConfig, NODE_SEND_CHANNEL_SIZE},
+    config::NetworkConfig,
     messages::Message,
 };
 use crate::{error::NetworkError, ConnectionClosureReason};

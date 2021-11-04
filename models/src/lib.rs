@@ -2,11 +2,11 @@
 
 #[macro_use]
 extern crate lazy_static;
-pub use address::{Address, ADDRESS_SIZE_BYTES};
+use massa_constant::{ADDRESS_SIZE_BYTES, BLOCK_ID_SIZE_BYTES, OPERATION_ID_SIZE_BYTES, SLOT_KEY_SIZE};
+pub use address::{Address};
 pub use amount::Amount;
 pub use block::{
     Block, BlockHashMap, BlockHashSet, BlockHeader, BlockHeaderContent, BlockId,
-    BLOCK_ID_SIZE_BYTES,
 };
 pub use composite::{
     OperationSearchResult, OperationSearchResultBlockStatus, OperationSearchResultStatus,
@@ -23,13 +23,12 @@ pub use endorsement::{
 pub use error::ModelsError;
 pub use operation::{
     Operation, OperationContent, OperationHashMap, OperationHashSet, OperationId, OperationType,
-    OPERATION_ID_SIZE_BYTES,
 };
 pub use serialization::{
     array_from_slice, u8_from_slice, DeserializeCompact, DeserializeMinBEInt, DeserializeVarInt,
     SerializeCompact, SerializeMinBEInt, SerializeVarInt,
 };
-pub use slot::{Slot, SLOT_KEY_SIZE};
+pub use slot::Slot;
 pub use version::Version;
 
 pub mod address;

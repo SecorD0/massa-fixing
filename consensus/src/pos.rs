@@ -6,10 +6,11 @@ use bitvec::prelude::*;
 use crypto::hash::Hash;
 use models::address::{AddressHashMap, AddressHashSet};
 use models::hhasher::BuildHHasher;
+use massa_constant::ADDRESS_SIZE_BYTES;
 use models::{
     array_from_slice, with_serialization_context, Address, Amount, BlockHashMap, BlockId,
     DeserializeCompact, DeserializeVarInt, ModelsError, Operation, OperationType, SerializeCompact,
-    SerializeVarInt, Slot, StakersCycleProductionStats, ADDRESS_SIZE_BYTES,
+    SerializeVarInt, Slot, StakersCycleProductionStats,
 };
 use num::rational::Ratio;
 use rand::distributions::Uniform;

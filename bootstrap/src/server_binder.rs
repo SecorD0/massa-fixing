@@ -2,11 +2,11 @@
 
 use super::messages::BootstrapMessage;
 use crate::establisher::Duplex;
-use crate::{error::BootstrapError, messages::BOOTSTRAP_RANDOMNES_SIZE_BYTES};
+use massa_constant::{BOOTSTRAP_RANDOMNES_SIZE_BYTES, HASH_SIZE_BYTES, SIGNATURE_SIZE_BYTES};
+use crate::error::BootstrapError;
 use crypto::{
     hash::Hash,
-    hash::HASH_SIZE_BYTES,
-    signature::{sign, PrivateKey, Signature, SIGNATURE_SIZE_BYTES},
+    signature::{sign, PrivateKey, Signature},
 };
 use models::SerializeMinBEInt;
 use models::{with_serialization_context, SerializeCompact};

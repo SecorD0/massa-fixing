@@ -129,6 +129,7 @@ dependencies = [
  "displaydoc",
  "futures 0.3.17",
  "logging",
+ "massa-constant",
  "models",
  "network",
  "num_enum",
@@ -259,6 +260,7 @@ dependencies = [
  "displaydoc",
  "futures 0.3.17",
  "logging",
+ "massa-constant",
  "models",
  "num",
  "pool",
@@ -364,6 +366,7 @@ dependencies = [
  "bitcoin_hashes",
  "bs58",
  "displaydoc",
+ "massa-constant",
  "pretty_assertions",
  "rand 0.8.4",
  "secp256k1",
@@ -1054,6 +1057,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "massa-constant"
+version = "0.1.0"
+
+[[package]]
 name = "massa-node"
 version = "0.1.0"
 dependencies = [
@@ -1145,6 +1152,7 @@ dependencies = [
  "displaydoc",
  "integer-encoding",
  "lazy_static",
+ "massa-constant",
  "num_enum",
  "pretty_assertions",
  "rand 0.8.4",
@@ -1198,6 +1206,7 @@ dependencies = [
  "futures 0.3.17",
  "itertools",
  "logging",
+ "massa-constant",
  "models",
  "num_enum",
  "pretty_assertions",
@@ -1612,6 +1621,7 @@ dependencies = [
  "futures 0.3.17",
  "itertools",
  "logging",
+ "massa-constant",
  "models",
  "network",
  "num_enum",

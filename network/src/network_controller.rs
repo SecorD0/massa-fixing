@@ -11,7 +11,7 @@ use tokio::{
     task::JoinHandle,
 };
 use tracing::{debug, error, info, warn};
-
+use massa_constant::CHANNEL_SIZE;
 use crypto::signature::{derive_public_key, generate_random_private_key, PrivateKey};
 use models::stats::NetworkStats;
 use models::{crypto::PubkeySig, node::NodeId};
@@ -20,7 +20,7 @@ use models::{Block, BlockHeader, BlockId, Endorsement, Operation, Version};
 use crate::error::NetworkError;
 
 use super::{
-    config::{NetworkConfig, CHANNEL_SIZE},
+    config::NetworkConfig,
     establisher::Establisher,
     network_worker::{
         NetworkCommand, NetworkEvent, NetworkManagementCommand, NetworkWorker, Peers,

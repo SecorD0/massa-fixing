@@ -25,6 +25,7 @@ logging = { path = "../logging" }
 models = { path = "../models" }
 time = { path = "../time" }
 network = { path = "../network" }
+massa-constant = { path = "../massa-constant" }
 
 [dev-dependencies]
 pretty_assertions = "0.7"

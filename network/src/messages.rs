@@ -1,16 +1,13 @@
 // Copyright (c) 2021 MASSA LABS <info@massa.net>
-
-use crypto::signature::{PublicKey, Signature, PUBLIC_KEY_SIZE_BYTES, SIGNATURE_SIZE_BYTES};
+use massa_constant::{HANDSHAKE_RANDOMNES_SIZE_BYTES, SIGNATURE_SIZE_BYTES, BLOCK_ID_SIZE_BYTES, PUBLIC_KEY_SIZE_BYTES};
+use crypto::signature::{PublicKey, Signature};
 use models::{
     array_from_slice, with_serialization_context, Block, BlockHeader, BlockId, DeserializeCompact,
     DeserializeVarInt, Endorsement, ModelsError, Operation, SerializeCompact, SerializeVarInt,
-    Version, BLOCK_ID_SIZE_BYTES,
-};
+    Version };
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use serde::{Deserialize, Serialize};
 use std::{convert::TryInto, net::IpAddr};
-
-pub const HANDSHAKE_RANDOMNES_SIZE_BYTES: usize = 32;
 
 /// All messages that can be sent or received.
 #[derive(Debug, Serialize, Deserialize)]

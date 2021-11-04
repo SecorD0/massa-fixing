@@ -4,9 +4,6 @@ use serde::Deserialize;
 use std::net::{IpAddr, SocketAddr};
 use time::UTime;
 
-pub const CHANNEL_SIZE: usize = 256;
-pub const NODE_SEND_CHANNEL_SIZE: usize = 1024;
-
 /// Network configuration
 #[derive(Debug, Deserialize, Clone)]
 pub struct NetworkConfig {
