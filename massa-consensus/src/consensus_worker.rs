@@ -538,6 +538,9 @@ impl ConsensusWorker {
     ) -> Result<(), ConsensusError> {
         // get parents
         let parents = self.block_db.get_best_parents();
+
+        info!("consensus.create_block.get_best_parents.result. parents: {:?}", parents);
+
         let (thread_parent, thread_parent_period) = parents[cur_slot.thread as usize];
 
         // get endorsements
@@ -707,7 +710,7 @@ impl ConsensusWorker {
         )?;
         let block = Block { header, operations };
 
-        massa_trace!("create block", { "block": block });
+        info!("create block {}", block);
         info!(
             "Staked block {} with address {}, at cycle {}, period {}, thread {}",
             block_id,

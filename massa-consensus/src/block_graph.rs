@@ -1952,7 +1952,7 @@ impl BlockGraph {
             "received block {} for slot {}",
             block_id, block.header.content.slot
         );
-        massa_trace!("consensus.block_graph.incoming_block", {"block_id": block_id, "block": block});
+        info!("consensus.block_graph.incoming_block. block_id: {}, block: {}", block_id, block.header.content.slot);
         let mut to_ack: BTreeSet<(Slot, BlockId)> = BTreeSet::new();
         match self.block_statuses.entry(block_id) {
             // if absent => add as Incoming, call rec_ack on it
@@ -2143,7 +2143,7 @@ impl BlockGraph {
                     }
                     HeaderCheckOutcome::Discard(reason) => {
                         self.maybe_note_attack_attempt(&reason, &block_id);
-                        massa_trace!("consensus.block_graph.process.incoming_header.discarded", {"block_id": block_id, "reason": reason});
+                        info!("consensus.block_graph.process.incoming_header.discarded. block_id: {}, reason: {:?}", block_id, reason);
                         // count stales
                         if reason == DiscardReason::Stale {
                             self.new_stale_blocks
@@ -2256,7 +2256,7 @@ impl BlockGraph {
                     }
                     BlockCheckOutcome::Discard(reason) => {
                         self.maybe_note_attack_attempt(&reason, &block_id);
-                        massa_trace!("consensus.block_graph.process.incoming_block.discarded", {"block_id": block_id, "reason": reason});
+                        info!("consensus.block_graph.process.incoming_block.discarded. block_id: {}, reason: {:?}", block_id, reason);
                         // count stales
                         if reason == DiscardReason::Stale {
                             self.new_stale_blocks.insert(
@@ -2401,7 +2401,7 @@ impl BlockGraph {
 
     /// Note an attack attempt if the discard reason indicates one.
     fn maybe_note_attack_attempt(&mut self, reason: &DiscardReason, hash: &BlockId) {
-        massa_trace!("consensus.block_graph.maybe_note_attack_attempt", {"hash": hash, "reason": reason});
+        info!("consensus.block_graph.maybe_note_attack_attempt. hash: {}, reason: {:?}", hash, reason);
         // If invalid, note the attack attempt.
         if let DiscardReason::Invalid(reason) = reason {
             info!(
@@ -3218,9 +3218,7 @@ impl BlockGraph {
         roll_updates: RollUpdates,
         production_events: Vec<(u64, Address, bool)>,
     ) -> Result<(), ConsensusError> {
-        massa_trace!("consensus.block_graph.add_block_to_graph", {
-            "block_id": add_block_id
-        });
+        info!("consensus.block_graph.add_block_to_graph. block_id: {}, parents: {:?}", add_block_id, add_block.header.content.parents);
         // add block to status structure
         self.block_statuses.insert(
             add_block_id,
@@ -3287,6 +3285,8 @@ impl BlockGraph {
         }
         self.gi_head.insert(add_block_id, incomp.clone());
 
+        info!("consensus.block_graph.add_block_to_graph.incompatibilities. gi_head: {:?}", self.gi_head);
+
         // max cliques update
         massa_trace!(
             "consensus.block_graph.add_block_to_graph.max_cliques_update",
@@ -3320,12 +3320,12 @@ impl BlockGraph {
                 .collect();
             let after = self.max_cliques.len();
             if before != after {
-                massa_trace!(
-                    "consensus.block_graph.add_block_to_graph.clique_full_computing more than one clique",
-                    { "cliques": self.max_cliques, "gi_head": self.gi_head }
+                info!(
+                    "consensus.block_graph.add_block_to_graph.clique_full_computing more than one clique. cliques: {:?}, gi_head: {:?}",
+                    self.max_cliques, self.gi_head
                 );
                 // gi_head
-                debug!(
+                info!(
                     "clique number went from {} to {} after adding {}",
                     before, after, add_block_id
                 );
@@ -3475,9 +3475,7 @@ impl BlockGraph {
                     }
                 }
 
-                massa_trace!("consensus.block_graph.add_block_to_graph.stale", {
-                    "hash": stale_block_hash
-                });
+                info!("consensus.block_graph.add_block_to_graph.stale. hash: {}", stale_block_hash);
                 // mark as stale
                 self.new_stale_blocks.insert(
                     stale_block_hash,
@@ -3587,9 +3585,7 @@ impl BlockGraph {
             if let Some(BlockStatus::Active(final_block)) =
                 self.block_statuses.get_mut(&final_block_hash)
             {
-                massa_trace!("consensus.block_graph.add_block_to_graph.final", {
-                    "hash": final_block_hash
-                });
+                info!("consensus.block_graph.add_block_to_graph.final. hash: {}", final_block_hash);
                 final_block.is_final = true;
                 // remove from cliques
                 let final_block_fitness = final_block.fitness();
@@ -3880,7 +3876,7 @@ impl BlockGraph {
                 }
             }
 
-            massa_trace!("consensus.block_graph.prune_active", {"hash": discard_active_h, "reason": DiscardReason::Final});
+            info!("consensus.block_graph.prune_active. hash: {}, reason: {:?}", discard_active_h, DiscardReason::Final);
             // mark as final
             self.block_statuses.insert(
                 discard_active_h,
@@ -4154,10 +4150,7 @@ impl BlockGraph {
 
         let after = self.max_cliques.len();
         if before != after {
-            debug!(
-                "clique number went from {} to {} after pruning",
-                before, after
-            );
+            info!("clique number went from {} to {} after pruning", before, after);
         }
 
         Ok(discarded_finals)
