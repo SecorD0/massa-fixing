@@ -1,4 +1,4 @@
-// Copyright (c) 2021 MASSA LABS <info@massa.net>
+// Copyright (c) 2022 MASSA LABS <info@massa.net>
 
 #![feature(async_closure)]
 #![feature(drain_filter)]
@@ -13,6 +13,6 @@ pub use protocol_controller::{
     ProtocolCommand, ProtocolCommandSender, ProtocolEvent, ProtocolEventReceiver,
     ProtocolManagementCommand, ProtocolManager, ProtocolPoolEvent, ProtocolPoolEventReceiver,
 };
-pub use settings::{ProtocolSettings, CHANNEL_SIZE};
+pub use settings::ProtocolSettings;
 
 pub mod tests;

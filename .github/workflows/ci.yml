@@ -131,7 +131,12 @@ jobs:
       - uses: Swatinem/rust-cache@v1
       - uses: actions-rs/cargo@v1
         with:
-          command: test
+          command: install
+          args: cargo-nextest
+      - uses: actions-rs/cargo@v1
+        with:
+          command: nextest
+          args: run --retries 2
 
   build: # quick hack because bors wrongly detect matrix jobs status
     if: github.ref == 'refs/heads/staging'
@@ -158,11 +163,8 @@ jobs:
           command: clean
       - uses: actions-rs/cargo@v1
         with:
-          command: build
-      - uses: actions-rs/cargo@v1
-        with:
           command: test
-          args: --all-features --no-fail-fast
+          args: --features testing --no-fail-fast
         env:
           CARGO_INCREMENTAL: "0"
           RUSTFLAGS: "-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests"

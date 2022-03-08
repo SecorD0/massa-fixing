@@ -1,9 +1,10 @@
-// Copyright (c) 2021 MASSA LABS <info@massa.net>
+// Copyright (c) 2022 MASSA LABS <info@massa.net>
 
 // RUST_BACKTRACE=1 cargo test test_one_handshake -- --nocapture --test-threads=1
 
 use super::tools::protocol_test;
-use massa_models::{self, Address, Amount, BlockHashMap, OperationHashMap, OperationHashSet, Slot};
+use massa_models::prehash::{Map, Set};
+use massa_models::{self, Address, Amount, OperationId, Slot};
 use massa_network::NetworkCommand;
 use massa_protocol_exports::tests::tools;
 use massa_protocol_exports::{ProtocolEvent, ProtocolPoolEvent};
@@ -95,20 +96,18 @@ async fn test_protocol_does_not_send_invalid_operations_it_receives_to_consensus
                 .await;
 
             // Check protocol does not send operations to consensus.
-            match tools::wait_protocol_pool_event(
-                &mut protocol_pool_event_receiver,
-                1000.into(),
-                |evt| match evt {
-                    evt @ ProtocolPoolEvent::ReceivedOperations { .. } => Some(evt),
-                    _ => None,
-                },
-            )
-            .await
+            if let Some(ProtocolPoolEvent::ReceivedOperations { .. }) =
+                tools::wait_protocol_pool_event(
+                    &mut protocol_pool_event_receiver,
+                    1000.into(),
+                    |evt| match evt {
+                        evt @ ProtocolPoolEvent::ReceivedOperations { .. } => Some(evt),
+                        _ => None,
+                    },
+                )
+                .await
             {
-                Some(ProtocolPoolEvent::ReceivedOperations { .. }) => {
-                    panic!("Protocol send invalid operations.")
-                }
-                _ => {}
+                panic!("Protocol send invalid operations.")
             };
 
             (
@@ -161,7 +160,7 @@ async fn test_protocol_propagates_operations_to_active_nodes() {
 
             let expected_operation_id = operation.verify_integrity().unwrap();
 
-            let mut ops = OperationHashMap::default();
+            let mut ops = Map::default();
             ops.insert(expected_operation_id, operation);
             protocol_command_sender
                 .propagate_operations(ops)
@@ -240,7 +239,7 @@ async fn test_protocol_propagates_operations_only_to_nodes_that_dont_know_about_
 
             let expected_operation_id = operation.verify_integrity().unwrap();
 
-            let mut ops = OperationHashMap::default();
+            let mut ops = Map::default();
             ops.insert(expected_operation_id, operation);
 
             // send endorsement to protocol
@@ -296,7 +295,7 @@ async fn test_protocol_propagates_operations_only_to_nodes_that_dont_know_about_
 
             let address = Address::from_public_key(&nodes[0].id.0);
             let serialization_context = massa_models::get_serialization_context();
-            let thread = address.get_thread(serialization_context.parent_count);
+            let thread = address.get_thread(serialization_context.thread_count);
 
             let operation = tools::create_operation_with_expire_period(&nodes[0].private_key, 1);
             let operation_id = operation.get_operation_id().unwrap();
@@ -353,7 +352,7 @@ async fn test_protocol_propagates_operations_only_to_nodes_that_dont_know_about_
             // Send the endorsement to protocol
             // it should not propagate to the node that already knows about it
             // because of the previously integrated block.
-            let mut ops = OperationHashMap::default();
+            let mut ops = Map::default();
             ops.insert(operation_id, operation);
             protocol_command_sender
                 .propagate_operations(ops)
@@ -406,7 +405,7 @@ async fn test_protocol_propagates_operations_only_to_nodes_that_dont_know_about_
 
             let address = Address::from_public_key(&nodes[0].id.0);
             let serialization_context = massa_models::get_serialization_context();
-            let thread = address.get_thread(serialization_context.parent_count);
+            let thread = address.get_thread(serialization_context.thread_count);
 
             let operation = tools::create_operation_with_expire_period(&nodes[0].private_key, 1);
             let operation_id = operation.get_operation_id().unwrap();
@@ -434,8 +433,8 @@ async fn test_protocol_propagates_operations_only_to_nodes_that_dont_know_about_
             .await;
 
             // Send the block as search results.
-            let mut results = BlockHashMap::default();
-            let mut ops = OperationHashSet::default();
+            let mut results = Map::default();
+            let mut ops = Set::<OperationId>::default();
             ops.insert(operation_id);
             results.insert(block_id, Some((block.clone(), Some(ops), None)));
 
@@ -462,7 +461,7 @@ async fn test_protocol_propagates_operations_only_to_nodes_that_dont_know_about_
             // Send the endorsement to protocol
             // it should not propagate to the node that already knows about it
             // because of the previously integrated block.
-            let mut ops = OperationHashMap::default();
+            let mut ops = Map::default();
             ops.insert(operation_id, operation);
             protocol_command_sender
                 .propagate_operations(ops)
@@ -515,7 +514,7 @@ async fn test_protocol_propagates_operations_only_to_nodes_that_dont_know_about_
 
             let address = Address::from_public_key(&nodes[0].id.0);
             let serialization_context = massa_models::get_serialization_context();
-            let thread = address.get_thread(serialization_context.parent_count);
+            let thread = address.get_thread(serialization_context.thread_count);
 
             let operation = tools::create_operation_with_expire_period(&nodes[0].private_key, 1);
             let operation_id = operation.get_operation_id().unwrap();
@@ -551,7 +550,7 @@ async fn test_protocol_propagates_operations_only_to_nodes_that_dont_know_about_
             // Send the operation to protocol
             // it should not propagate to the node that already knows about it
             // because of the previously received header.
-            let mut ops = OperationHashMap::default();
+            let mut ops = Map::default();
             ops.insert(operation_id, operation);
             protocol_command_sender
                 .propagate_operations(ops)
@@ -604,7 +603,7 @@ async fn test_protocol_propagates_operations_only_to_nodes_that_dont_know_about_
 
             let address = Address::from_public_key(&nodes[0].id.0);
             let serialization_context = massa_models::get_serialization_context();
-            let thread = address.get_thread(serialization_context.parent_count);
+            let thread = address.get_thread(serialization_context.thread_count);
 
             let operation = tools::create_operation_with_expire_period(&nodes[0].private_key, 1);
 
@@ -648,7 +647,7 @@ async fn test_protocol_propagates_operations_only_to_nodes_that_dont_know_about_
 
             // Send the operation to protocol
             // it should propagate to the node because it isn't in the block.
-            let mut ops = OperationHashMap::default();
+            let mut ops = Map::default();
             ops.insert(operation_id_2, operation_2);
             protocol_command_sender
                 .propagate_operations(ops)
@@ -705,7 +704,7 @@ async fn test_protocol_does_not_propagates_operations_when_receiving_those_insid
 
             let address = Address::from_public_key(&creator_node.id.0);
             let serialization_context = massa_models::get_serialization_context();
-            let thread = address.get_thread(serialization_context.parent_count);
+            let thread = address.get_thread(serialization_context.thread_count);
 
             // 2. Create a block coming from node creator_node, and including the operation.
             let block = tools::create_block_with_operations(
@@ -737,7 +736,7 @@ async fn test_protocol_does_not_propagates_operations_when_receiving_those_insid
                     operations,
                 }) => {
                     let expected_id = operation.verify_integrity().unwrap();
-                    assert_eq!(propagate, false);
+                    assert!(!propagate);
                     assert_eq!(
                         operations
                             .get(&expected_id)

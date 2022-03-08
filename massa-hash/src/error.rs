@@ -1,4 +1,4 @@
-// Copyright (c) 2021 MASSA LABS <info@massa.net>
+// Copyright (c) 2022 MASSA LABS <info@massa.net>
 
 use displaydoc::Display;
 use thiserror::Error;
@@ -11,4 +11,7 @@ pub enum MassaHashError {
 
     /// error forwarded by engine: {0}
     EngineError(#[from] secp256k1::Error),
+
+    /// Wrong prefix for hash: expected {0}, got {1}
+    WrongPrefix(String, String),
 }

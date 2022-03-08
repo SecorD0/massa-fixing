@@ -1,14 +1,20 @@
-// Copyright (c) 2021 MASSA LABS <info@massa.net>
+// Copyright (c) 2022 MASSA LABS <info@massa.net>
 
 use crate::error::MassaHashError;
 use crate::settings::HASH_SIZE_BYTES;
 use bitcoin_hashes;
 use std::{convert::TryInto, str::FromStr};
 
-#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash)]
+#[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Hash)]
 pub struct Hash(bitcoin_hashes::sha256::Hash);
 
 impl std::fmt::Display for Hash {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}", self.to_bs58_check())
+    }
+}
+
+impl std::fmt::Debug for Hash {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{}", self.to_bs58_check())
     }

@@ -1,13 +1,11 @@
-// Copyright (c) 2021 MASSA LABS <info@massa.net>
+// Copyright (c) 2022 MASSA LABS <info@massa.net>
 
-use crate::settings::{BLOCK_ID_SIZE_BYTES, SLOT_KEY_SIZE};
+use crate::constants::{BLOCK_ID_SIZE_BYTES, SLOT_KEY_SIZE};
+use crate::prehash::{Map, PreHashed, Set};
 use crate::{
-    address::{AddressHashMap, AddressHashSet},
-    array_from_slice,
-    hhasher::{HHashMap, HHashSet, PreHashed},
-    u8_from_slice, with_serialization_context, Address, DeserializeCompact, DeserializeMinBEInt,
-    DeserializeVarInt, Endorsement, EndorsementHashMap, EndorsementHashSet, ModelsError, Operation,
-    OperationHashMap, OperationHashSet, SerializeCompact, SerializeMinBEInt, SerializeVarInt, Slot,
+    array_from_slice, u8_from_slice, with_serialization_context, Address, DeserializeCompact,
+    DeserializeMinBEInt, DeserializeVarInt, Endorsement, EndorsementId, ModelsError, Operation,
+    OperationId, SerializeCompact, SerializeMinBEInt, SerializeVarInt, Slot,
 };
 use massa_hash::hash::Hash;
 use massa_hash::HASH_SIZE_BYTES;
@@ -20,21 +18,52 @@ use std::convert::TryInto;
 use std::fmt::Formatter;
 use std::str::FromStr;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+const BLOCK_ID_STRING_PREFIX: &str = "BLO";
+
+#[derive(Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
 pub struct BlockId(pub Hash);
 
 impl PreHashed for BlockId {}
 
 impl std::fmt::Display for BlockId {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}", self.0.to_bs58_check())
+        if cfg!(feature = "hash-prefix") {
+            write!(f, "{}-{}", BLOCK_ID_STRING_PREFIX, self.0.to_bs58_check())
+        } else {
+            write!(f, "{}", self.0.to_bs58_check())
+        }
+    }
+}
+
+impl std::fmt::Debug for BlockId {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        if cfg!(feature = "hash-prefix") {
+            write!(f, "{}-{}", BLOCK_ID_STRING_PREFIX, self.0.to_bs58_check())
+        } else {
+            write!(f, "{}", self.0.to_bs58_check())
+        }
     }
 }
 
 impl FromStr for BlockId {
     type Err = ModelsError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(BlockId(Hash::from_str(s)?))
+        if cfg!(feature = "hash-prefix") {
+            let v: Vec<_> = s.split('-').collect();
+            if v.len() != 2 {
+                // assume there is no prefix
+                Ok(BlockId(Hash::from_str(s)?))
+            } else if v[0] != BLOCK_ID_STRING_PREFIX {
+                Err(ModelsError::WrongPrefix(
+                    BLOCK_ID_STRING_PREFIX.to_string(),
+                    v[0].to_string(),
+                ))
+            } else {
+                Ok(BlockId(Hash::from_str(v[1])?))
+            }
+        } else {
+            Ok(BlockId(Hash::from_str(s)?))
+        }
     }
 }
 
@@ -63,9 +92,6 @@ impl BlockId {
     }
 }
 
-pub type BlockHashMap<T> = HHashMap<BlockId, T>;
-pub type BlockHashSet = HHashSet<BlockId>;
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Block {
     pub header: BlockHeader,
@@ -86,8 +112,8 @@ impl Block {
     }
 
     /// Retrieve roll involving addresses
-    pub fn get_roll_involved_addresses(&self) -> Result<AddressHashSet, ModelsError> {
-        let mut roll_involved_addrs = AddressHashSet::default();
+    pub fn get_roll_involved_addresses(&self) -> Result<Set<Address>, ModelsError> {
+        let mut roll_involved_addrs = Set::<Address>::default();
         for op in self.operations.iter() {
             roll_involved_addrs.extend(op.get_roll_involved_addresses()?);
         }
@@ -97,10 +123,10 @@ impl Block {
     /// retrieves a mapping of addresses to the list of operation IDs they are involved with in terms of ledger
     pub fn involved_addresses(
         &self,
-        operation_set: &OperationHashMap<(usize, u64)>,
-    ) -> Result<AddressHashMap<OperationHashSet>, ModelsError> {
-        let mut addresses_to_operations: AddressHashMap<OperationHashSet> =
-            AddressHashMap::default();
+        operation_set: &Map<OperationId, (usize, u64)>,
+    ) -> Result<Map<Address, Set<OperationId>>, ModelsError> {
+        let mut addresses_to_operations: Map<Address, Set<OperationId>> =
+            Map::<Address, Set<OperationId>>::default();
         operation_set
             .iter()
             .try_for_each::<_, Result<(), ModelsError>>(|(op_id, (op_idx, _op_expiry))| {
@@ -115,7 +141,7 @@ impl Block {
                     if let Some(entry) = addresses_to_operations.get_mut(&ad) {
                         entry.insert(*op_id);
                     } else {
-                        let mut set = OperationHashSet::default();
+                        let mut set = Set::<OperationId>::default();
                         set.insert(*op_id);
                         addresses_to_operations.insert(ad, set);
                     }
@@ -127,9 +153,9 @@ impl Block {
 
     pub fn addresses_to_endorsements(
         &self,
-        _endo: &EndorsementHashMap<u32>,
-    ) -> Result<AddressHashMap<EndorsementHashSet>, ModelsError> {
-        let mut res: AddressHashMap<EndorsementHashSet> = AddressHashMap::default();
+        _endo: &Map<EndorsementId, u32>,
+    ) -> Result<Map<Address, Set<EndorsementId>>, ModelsError> {
+        let mut res: Map<Address, Set<EndorsementId>> = Map::default();
         self.header
             .content
             .endorsements
@@ -139,7 +165,7 @@ impl Block {
                 if let Some(old) = res.get_mut(&address) {
                     old.insert(e.compute_endorsement_id()?);
                 } else {
-                    let mut set = EndorsementHashSet::default();
+                    let mut set = Set::<EndorsementId>::default();
                     set.insert(e.compute_endorsement_id()?);
                     res.insert(address, set);
                 }
@@ -235,7 +261,7 @@ impl SerializeCompact for Block {
         res.extend(self.header.to_bytes_compact()?);
 
         let max_block_operations =
-            with_serialization_context(|context| context.max_block_operations);
+            with_serialization_context(|context| context.max_operations_per_block);
 
         // operations
         let operation_count: u32 =
@@ -269,7 +295,7 @@ impl DeserializeCompact for Block {
         let mut cursor = 0usize;
 
         let (max_block_size, max_block_operations) = with_serialization_context(|context| {
-            (context.max_block_size, context.max_block_operations)
+            (context.max_block_size, context.max_operations_per_block)
         });
 
         // header
@@ -309,7 +335,7 @@ impl BlockHeader {
     }
 
     /// Generate the block id without verifying the integrity of the it,
-    /// used only in tests.
+    /// used only in tests and logging.
     pub fn compute_block_id(&self) -> Result<BlockId, ModelsError> {
         Ok(BlockId(Hash::compute_from(&self.to_bytes_compact()?)))
     }
@@ -463,7 +489,7 @@ impl DeserializeCompact for BlockHeaderContent {
         // parents
         let has_parents = u8_from_slice(&buffer[cursor..])?;
         cursor += 1;
-        let parent_count = with_serialization_context(|context| context.parent_count);
+        let parent_count = with_serialization_context(|context| context.thread_count);
         let parents = if has_parents == 1 {
             let mut parents: Vec<BlockId> = Vec::with_capacity(parent_count as usize);
             for _ in 0..parent_count {
@@ -485,7 +511,7 @@ impl DeserializeCompact for BlockHeaderContent {
         cursor += HASH_SIZE_BYTES;
 
         let max_block_endorsements =
-            with_serialization_context(|context| context.max_block_endorsements);
+            with_serialization_context(|context| context.endorsement_count);
 
         // endorsements
         let (endorsement_count, delta) =
@@ -524,9 +550,9 @@ mod test {
     fn test_block_serialization() {
         let ctx = crate::SerializationContext {
             max_block_size: 1024 * 1024,
-            max_block_operations: 1024,
-            parent_count: 3,
-            max_peer_list_length: 128,
+            max_operations_per_block: 1024,
+            thread_count: 3,
+            max_advertise_length: 128,
             max_message_size: 3 * 1024 * 1024,
             max_bootstrap_blocks: 100,
             max_bootstrap_cliques: 100,
@@ -538,7 +564,7 @@ mod test {
             max_operations_per_message: 1024,
             max_endorsements_per_message: 1024,
             max_bootstrap_message_size: 100000000,
-            max_block_endorsements: 8,
+            endorsement_count: 8,
         };
         crate::init_serialization_context(ctx);
         let private_key = generate_random_private_key();

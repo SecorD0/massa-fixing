@@ -1,19 +1,21 @@
-// Copyright (c) 2021 MASSA LABS <info@massa.net>
+// Copyright (c) 2022 MASSA LABS <info@massa.net>
 
-use super::{
+use crate::{
+    error::NetworkError,
     establisher::Establisher,
+    network_worker::NetworkWorkerChannels,
     network_worker::{
         NetworkCommand, NetworkEvent, NetworkManagementCommand, NetworkWorker, Peers,
     },
     peer_info_database::*,
+    settings::NetworkSettings,
     BootstrapPeers,
 };
-use crate::error::NetworkError;
-use crate::settings::{NetworkSettings, CHANNEL_SIZE};
 use massa_logging::massa_trace;
-use massa_models::stats::NetworkStats;
-use massa_models::{massa_hash::PubkeySig, node::NodeId};
-use massa_models::{Block, BlockHeader, BlockId, Endorsement, Operation, Version};
+use massa_models::{
+    composite::PubkeySig, constants::CHANNEL_SIZE, node::NodeId, stats::NetworkStats, Block,
+    BlockHeader, BlockId, Endorsement, Operation, Version,
+};
 use massa_signature::{derive_public_key, generate_random_private_key, PrivateKey};
 use std::{
     collections::{HashMap, VecDeque},
@@ -97,27 +99,28 @@ pub async fn start_network_controller(
     // load peer info database
     let mut peer_info_db = PeerInfoDatabase::new(&network_settings, clock_compensation).await?;
 
-    // add initial peers
+    // add bootstrap peers
     if let Some(peers) = initial_peers {
         peer_info_db.merge_candidate_peers(&peers.0)?;
     }
 
     // launch controller
-    let (command_tx, command_rx) = mpsc::channel::<NetworkCommand>(CHANNEL_SIZE);
-    let (event_tx, event_rx) = mpsc::channel::<NetworkEvent>(CHANNEL_SIZE);
-    let (manager_tx, manager_rx) = mpsc::channel::<NetworkManagementCommand>(1);
+    let (command_tx, controller_command_rx) = mpsc::channel::<NetworkCommand>(CHANNEL_SIZE);
+    let (controller_event_tx, event_rx) = mpsc::channel::<NetworkEvent>(CHANNEL_SIZE);
+    let (manager_tx, controller_manager_rx) = mpsc::channel::<NetworkManagementCommand>(1);
     let cfg_copy = network_settings.clone();
     let join_handle = tokio::spawn(async move {
         let res = NetworkWorker::new(
             cfg_copy,
             private_key,
-            self_node_id,
             listener,
             establisher,
             peer_info_db,
-            command_rx,
-            event_tx,
-            manager_rx,
+            NetworkWorkerChannels {
+                controller_command_rx,
+                controller_event_tx,
+                controller_manager_rx,
+            },
             version,
         )
         .run_loop()
@@ -219,11 +222,11 @@ impl NetworkCommandSender {
             .send(NetworkCommand::GetPeers(response_tx))
             .await
             .map_err(|_| NetworkError::ChannelError("could not send GetPeers command".into()))?;
-        Ok(response_rx.await.map_err(|_| {
+        response_rx.await.map_err(|_| {
             NetworkError::ChannelError(
                 "could not send GetAdvertisablePeerListChannelError upstream".into(),
             )
-        })?)
+        })
     }
 
     pub async fn get_network_stats(&self) -> Result<NetworkStats, NetworkError> {
@@ -232,11 +235,11 @@ impl NetworkCommandSender {
             .send(NetworkCommand::GetStats { response_tx })
             .await
             .map_err(|_| NetworkError::ChannelError("could not send GetPeers command".into()))?;
-        Ok(response_rx.await.map_err(|_| {
+        response_rx.await.map_err(|_| {
             NetworkError::ChannelError(
                 "could not send GetAdvertisablePeerListChannelError upstream".into(),
             )
-        })?)
+        })
     }
 
     /// Send the order to get bootstrap peers.
@@ -248,9 +251,9 @@ impl NetworkCommandSender {
             .map_err(|_| {
                 NetworkError::ChannelError("could not send GetBootstrapPeers command".into())
             })?;
-        Ok(response_rx.await.map_err(|_| {
+        response_rx.await.map_err(|_| {
             NetworkError::ChannelError("could not send GetBootstrapPeers response upstream".into())
-        })?)
+        })
     }
 
     pub async fn block_not_found(
@@ -304,9 +307,9 @@ impl NetworkCommandSender {
             .map_err(|_| {
                 NetworkError::ChannelError("could not send GetBootstrapPeers command".into())
             })?;
-        Ok(response_rx.await.map_err(|_| {
+        response_rx.await.map_err(|_| {
             NetworkError::ChannelError("could not send GetBootstrapPeers response upstream".into())
-        })?)
+        })
     }
 }
 

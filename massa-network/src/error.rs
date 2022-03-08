@@ -1,4 +1,4 @@
-// Copyright (c) 2021 MASSA LABS <info@massa.net>
+// Copyright (c) 2022 MASSA LABS <info@massa.net>
 
 use crate::ConnectionId;
 use displaydoc::Display;
@@ -19,8 +19,8 @@ pub enum NetworkError {
     TokioTaskJoinError(#[from] tokio::task::JoinError),
     /// error receiving oneshot response : {0}
     TokieRecvError(#[from] tokio::sync::oneshot::error::RecvError),
-    /// Error during network connection:`{0:?}`
-    PeerConnectionError(NetworkConnectionErrorType),
+    /// Error during network connection: {0}
+    PeerConnectionError(#[from] NetworkConnectionErrorType),
     /// The ip:`{0}` address is not valid
     InvalidIpError(IpAddr),
     /// Active connection missing:`{0}`
@@ -49,19 +49,43 @@ pub enum NetworkError {
 
 #[derive(Debug)]
 pub enum HandshakeErrorType {
-    HandshakeIdAlreadyExistError(String),
-    HandshakeTimeoutError,
-    HandshakeInterruptionError(String),
-    HandshakeWrongMessageError,
-    HandshakeKeyError,
-    HandshakeInvalidSignatureError,
-    IncompatibleVersionError,
+    HandshakeIdAlreadyExist(String),
+    HandshakeTimeout,
+    HandshakeInterruption(String),
+    HandshakeWrongMessage,
+    HandshakeKey,
+    HandshakeInvalidSignature,
+    IncompatibleVersion,
+    /// Outgoing connection returned a bootstrapable peer list: {0:?}
+    PeerListReceived(Vec<IpAddr>),
 }
 
-#[derive(Debug)]
+macro_rules! throw_handshake_error {
+    ($err:ident) => {
+        return Err(NetworkError::HandshakeError(HandshakeErrorType::$err))
+    };
+    ($err:ident, $e:expr) => {
+        return Err(NetworkError::HandshakeError(HandshakeErrorType::$err($e)))
+    };
+}
+pub(crate) use throw_handshake_error;
+
+#[derive(Debug, Error, Display)]
+#[non_exhaustive]
+/// Incoming and outgoing connection with other peers error list
 pub enum NetworkConnectionErrorType {
+    /// Try to close connection with no connection: {0}
     CloseConnectionWithNoConnectionToClose(IpAddr),
+    /// Peer info not found for address: {0}
     PeerInfoNotFoundError(IpAddr),
+    /// Too many connection attempt: {0}
     ToManyConnectionAttempt(IpAddr),
+    /// Too many connection failure: {0}
     ToManyConnectionFailure(IpAddr),
+    /// Max connected peers reached: {0}
+    MaxPeersConnectionReached(IpAddr),
+    /// Attempt too connect from you own IP
+    SelfConnection,
+    /// A banned peer is trying to connect: {0}
+    BannedPeerTryingToConnect(IpAddr),
 }

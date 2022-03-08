@@ -1,7 +1,7 @@
-// Copyright (c) 2021 MASSA LABS <info@massa.net>
+// Copyright (c) 2022 MASSA LABS <info@massa.net>
 
 use super::mock_protocol_controller::MockProtocolController;
-use crate::{pool_controller, PoolCommandSender, PoolManager, PoolSettings};
+use crate::{pool_controller, settings::PoolConfig, PoolCommandSender, PoolManager};
 use futures::Future;
 use massa_hash::hash::Hash;
 use massa_models::{
@@ -13,12 +13,8 @@ use massa_signature::{
 };
 use std::str::FromStr;
 
-pub async fn pool_test<F, V>(
-    pool_settings: &'static PoolSettings,
-    thread_count: u8,
-    operation_validity_periods: u64,
-    test: F,
-) where
+pub async fn pool_test<F, V>(cfg: &'static PoolConfig, test: F)
+where
     F: FnOnce(MockProtocolController, PoolCommandSender, PoolManager) -> V,
     V: Future<Output = (MockProtocolController, PoolCommandSender, PoolManager)>,
 {
@@ -26,9 +22,7 @@ pub async fn pool_test<F, V>(
         MockProtocolController::new();
 
     let (pool_command_sender, pool_manager) = pool_controller::start_pool_controller(
-        pool_settings,
-        thread_count,
-        operation_validity_periods,
+        cfg,
         protocol_command_sender,
         protocol_pool_event_receiver,
     )
@@ -106,5 +100,38 @@ pub fn get_transaction_with_addresses(
     (
         Operation { content, signature },
         Address::from_public_key(&sender_pub).get_thread(2),
+    )
+}
+
+pub fn create_executesc(
+    expire_period: u64,
+    fee: u64,
+    max_gas: u64,
+    gas_price: u64,
+) -> (Operation, u8) {
+    let priv_key = generate_random_private_key();
+    let sender_public_key = derive_public_key(&priv_key);
+
+    let data = vec![42; 7];
+    let coins = 0;
+
+    let op = OperationType::ExecuteSC {
+        data,
+        max_gas,
+        coins: Amount::from_str(&coins.to_string()).unwrap(),
+        gas_price: Amount::from_str(&gas_price.to_string()).unwrap(),
+    };
+
+    let content = OperationContent {
+        sender_public_key,
+        fee: Amount::from_str(&fee.to_string()).unwrap(),
+        expire_period,
+        op,
+    };
+    let hash = Hash::compute_from(&content.to_bytes_compact().unwrap());
+    let signature = sign(&hash, &priv_key).unwrap();
+    (
+        Operation { content, signature },
+        Address::from_public_key(&sender_public_key).get_thread(2),
     )
 }

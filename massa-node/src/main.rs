@@ -1,34 +1,40 @@
-// Copyright (c) 2021 MASSA LABS <info@massa.net>
+// Copyright (c) 2022 MASSA LABS <info@massa.net>
 
 #![feature(ip)]
 #![doc = include_str!("../../README.md")]
 
 extern crate massa_logging;
-use crate::settings::SETTINGS;
+use crate::settings::{POOL_CONFIG, SETTINGS};
 use massa_api::{Private, Public, RpcServer, StopHandle, API};
 use massa_bootstrap::{get_state, start_bootstrap_server, BootstrapManager};
-use massa_consensus::{
-    start_consensus_controller, ConsensusCommandSender, ConsensusEvent, ConsensusEventReceiver,
-    ConsensusManager,
+use massa_consensus_exports::{
+    events::ConsensusEvent, settings::ConsensusChannels, ConsensusCommandSender, ConsensusConfig,
+    ConsensusEventReceiver, ConsensusManager,
 };
-
-use massa_execution::{ExecutionConfigs, ExecutionManager};
-
+use massa_consensus_worker::start_consensus_controller;
+use massa_execution_exports::{ExecutionConfig, ExecutionManager};
+use massa_execution_worker::start_execution_worker;
+use massa_ledger::{FinalLedger, LedgerConfig};
 use massa_logging::massa_trace;
-use massa_models::{init_serialization_context, SerializationContext};
+use massa_models::{
+    constants::{
+        END_TIMESTAMP, GENESIS_TIMESTAMP, MAX_GAS_PER_BLOCK, OPERATION_VALIDITY_PERIODS, T0,
+        THREAD_COUNT, VERSION,
+    },
+    init_serialization_context, SerializationContext,
+};
 use massa_network::{start_network_controller, Establisher, NetworkCommandSender, NetworkManager};
 use massa_pool::{start_pool_controller, PoolCommandSender, PoolManager};
 use massa_protocol_exports::ProtocolManager;
 use massa_protocol_worker::start_protocol_controller;
 use massa_time::MassaTime;
-use std::process;
+use parking_lot::RwLock;
+use std::{process, sync::Arc};
 use tokio::signal;
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
-use tracing_subscriber::{
-    filter::{filter_fn, LevelFilter},
-    prelude::*,
-};
+#[cfg(not(feature = "instrument"))]
+use tracing_subscriber::filter::{filter_fn, LevelFilter};
 
 mod settings;
 
@@ -39,7 +45,7 @@ async fn launch() -> (
     NetworkCommandSender,
     Option<BootstrapManager>,
     ConsensusManager,
-    ExecutionManager,
+    Box<dyn ExecutionManager>,
     PoolManager,
     ProtocolManager,
     NetworkManager,
@@ -47,32 +53,15 @@ async fn launch() -> (
     StopHandle,
     StopHandle,
 ) {
-    info!("Node version : {}", *crate::settings::VERSION);
-    if let Some(end) = *massa_consensus::settings::END_TIMESTAMP {
+    info!("Node version : {}", *VERSION);
+    if let Some(end) = *END_TIMESTAMP {
         if MassaTime::now().expect("could not get now time") > end {
             panic!("This episode has come to an end, please get the latest testnet node version to continue");
         }
     }
 
     // Init the global serialization context
-    init_serialization_context(SerializationContext {
-        max_block_operations: massa_consensus::settings::MAX_OPERATIONS_PER_BLOCK,
-        parent_count: massa_consensus::settings::THREAD_COUNT,
-        max_block_size: massa_consensus::settings::MAX_BLOCK_SIZE,
-        max_block_endorsements: massa_consensus::settings::ENDORSEMENT_COUNT,
-        max_peer_list_length: massa_network::settings::MAX_ADVERTISE_LENGTH,
-        max_message_size: massa_network::settings::MAX_MESSAGE_SIZE,
-        max_bootstrap_blocks: massa_bootstrap::settings::MAX_BOOTSTRAP_BLOCKS,
-        max_bootstrap_cliques: massa_bootstrap::settings::MAX_BOOTSTRAP_CLIQUES,
-        max_bootstrap_deps: massa_bootstrap::settings::MAX_BOOTSTRAP_DEPS,
-        max_bootstrap_children: massa_bootstrap::settings::MAX_BOOTSTRAP_CHILDREN,
-        max_ask_blocks_per_message: massa_network::settings::MAX_ASK_BLOCKS_PER_MESSAGE,
-        max_operations_per_message: massa_network::settings::MAX_OPERATIONS_PER_MESSAGE,
-        max_endorsements_per_message: massa_network::settings::MAX_ENDORSEMENTS_PER_MESSAGE,
-        max_bootstrap_message_size: massa_bootstrap::settings::MAX_BOOTSTRAP_MESSAGE_SIZE,
-        max_bootstrap_pos_cycles: massa_bootstrap::settings::MAX_BOOTSTRAP_POS_CYCLES,
-        max_bootstrap_pos_entries: massa_bootstrap::settings::MAX_BOOTSTRAP_POS_ENTRIES,
-    });
+    init_serialization_context(SerializationContext::default());
 
     // interrupt signal listener
     let stop_signal = signal::ctrl_c();
@@ -85,9 +74,9 @@ async fn launch() -> (
         res = get_state(
             &SETTINGS.bootstrap,
             massa_bootstrap::establisher::Establisher::new(),
-            *settings::VERSION,
-            *massa_consensus::settings::GENESIS_TIMESTAMP,
-            *massa_consensus::settings::END_TIMESTAMP,
+            *VERSION,
+            *GENESIS_TIMESTAMP,
+            *END_TIMESTAMP,
         ) => match res {
             Ok(vals) => vals,
             Err(err) => panic!("critical error detected in the bootstrap process: {}", err)
@@ -101,7 +90,7 @@ async fn launch() -> (
             Establisher::new(),
             bootstrap_state.compensation_millis,
             bootstrap_state.peers,
-            *crate::settings::VERSION,
+            *VERSION,
         )
         .await
         .expect("could not start network controller");
@@ -114,8 +103,8 @@ async fn launch() -> (
         protocol_manager,
     ) = start_protocol_controller(
         &SETTINGS.protocol,
-        massa_consensus::settings::OPERATION_VALIDITY_PERIODS,
-        massa_consensus::settings::MAX_GAS_PER_BLOCK,
+        OPERATION_VALIDITY_PERIODS,
+        MAX_GAS_PER_BLOCK,
         network_command_sender.clone(),
         network_event_receiver,
     )
@@ -124,38 +113,48 @@ async fn launch() -> (
 
     // launch pool controller
     let (pool_command_sender, pool_manager) = start_pool_controller(
-        &SETTINGS.pool,
-        massa_consensus::settings::THREAD_COUNT,
-        massa_consensus::settings::OPERATION_VALIDITY_PERIODS,
+        &POOL_CONFIG,
         protocol_command_sender.clone(),
         protocol_pool_event_receiver,
     )
     .await
     .expect("could not start pool controller");
 
-    let execution_config = ExecutionConfigs {
-        settings: SETTINGS.execution.clone(),
-        thread_count: massa_consensus::settings::THREAD_COUNT,
-        genesis_timestamp: *massa_consensus::settings::GENESIS_TIMESTAMP,
-        t0: *massa_consensus::settings::T0,
-        clock_compensation: bootstrap_state.compensation_millis,
+    // init ledger
+    let ledger_config = LedgerConfig {
+        initial_sce_ledger_path: SETTINGS.ledger.initial_sce_ledger_path.clone(),
+        final_history_length: SETTINGS.ledger.final_history_length,
+        thread_count: THREAD_COUNT,
     };
+    let final_ledger = Arc::new(RwLock::new(match bootstrap_state.final_ledger {
+        Some(l) => FinalLedger::from_bootstrap_state(ledger_config, l),
+        None => FinalLedger::new(ledger_config).expect("could not init final ledger"),
+    }));
 
-    // launch execution controller
-    let (execution_command_sender, execution_event_receiver, execution_manager) =
-        massa_execution::start_controller(execution_config, bootstrap_state.execution)
-            .await
-            .expect("could not start execution controller");
+    // launch execution module
+    let execution_config = ExecutionConfig {
+        max_final_events: SETTINGS.execution.max_final_events,
+        readonly_queue_length: SETTINGS.execution.readonly_queue_length,
+        cursor_delay: SETTINGS.execution.cursor_delay,
+        clock_compensation: bootstrap_state.compensation_millis,
+        thread_count: THREAD_COUNT,
+        t0: T0,
+        genesis_timestamp: *GENESIS_TIMESTAMP,
+    };
+    let (execution_manager, execution_controller) =
+        start_execution_worker(execution_config, final_ledger.clone());
 
+    let consensus_config = ConsensusConfig::from(&SETTINGS.consensus);
     // launch consensus controller
     let (consensus_command_sender, consensus_event_receiver, consensus_manager) =
         start_consensus_controller(
-            SETTINGS.consensus.config(),
-            execution_command_sender.clone(),
-            execution_event_receiver,
-            protocol_command_sender.clone(),
-            protocol_event_receiver,
-            pool_command_sender.clone(),
+            consensus_config.clone(),
+            ConsensusChannels {
+                execution_controller: execution_controller.clone(),
+                protocol_command_sender: protocol_command_sender.clone(),
+                protocol_event_receiver,
+                pool_command_sender: pool_command_sender.clone(),
+            },
             bootstrap_state.pos,
             bootstrap_state.graph,
             bootstrap_state.compensation_millis,
@@ -167,12 +166,12 @@ async fn launch() -> (
     let bootstrap_manager = start_bootstrap_server(
         consensus_command_sender.clone(),
         network_command_sender.clone(),
-        execution_command_sender.clone(),
+        final_ledger.clone(),
         &SETTINGS.bootstrap,
         massa_bootstrap::Establisher::new(),
         private_key,
         bootstrap_state.compensation_millis,
-        *crate::settings::VERSION,
+        *VERSION,
     )
     .await
     .unwrap();
@@ -181,21 +180,21 @@ async fn launch() -> (
     let (api_private, api_private_stop_rx) = API::<Private>::new(
         consensus_command_sender.clone(),
         network_command_sender.clone(),
-        execution_command_sender.clone(),
+        execution_controller.clone(),
         &SETTINGS.api,
-        SETTINGS.consensus.config(),
+        consensus_config.clone(),
     );
     let api_private_handle = api_private.serve(&SETTINGS.api.bind_private);
 
     // spawn public API
     let api_public = API::<Public>::new(
         consensus_command_sender.clone(),
-        execution_command_sender,
+        execution_controller.clone(),
         &SETTINGS.api,
-        SETTINGS.consensus.config(),
+        consensus_config,
         pool_command_sender.clone(),
         &SETTINGS.network,
-        *crate::settings::VERSION,
+        *VERSION,
         network_command_sender.clone(),
         bootstrap_state.compensation_millis,
         node_id,
@@ -219,14 +218,25 @@ async fn launch() -> (
     )
 }
 
-async fn stop(
+struct Managers {
     bootstrap_manager: Option<BootstrapManager>,
     consensus_manager: ConsensusManager,
-    consensus_event_receiver: ConsensusEventReceiver,
-    execution_manager: ExecutionManager,
+    execution_manager: Box<dyn ExecutionManager>,
     pool_manager: PoolManager,
     protocol_manager: ProtocolManager,
     network_manager: NetworkManager,
+}
+
+async fn stop(
+    consensus_event_receiver: ConsensusEventReceiver,
+    Managers {
+        bootstrap_manager,
+        consensus_manager,
+        mut execution_manager,
+        pool_manager,
+        protocol_manager,
+        network_manager,
+    }: Managers,
     api_private_handle: StopHandle,
     api_public_handle: StopHandle,
 ) {
@@ -245,16 +255,13 @@ async fn stop(
     api_private_handle.stop();
 
     // stop consensus controller
-    let (protocol_event_receiver, _execution_event_receiver) = consensus_manager
+    let protocol_event_receiver = consensus_manager
         .stop(consensus_event_receiver)
         .await
         .expect("consensus shutdown failed");
 
     // Stop execution controller.
-    execution_manager
-        .stop()
-        .await
-        .expect("Failed to shutdown execution.");
+    execution_manager.stop();
 
     // stop pool controller
     let protocol_pool_event_receiver = pool_manager.stop().await.expect("pool shutdown failed");
@@ -270,12 +277,22 @@ async fn stop(
         .stop(network_event_receiver)
         .await
         .expect("network shutdown failed");
+
+    // note that FinalLedger gets destroyed as soon as its Arc count goes to zero
 }
 
+/// To instrument `massa-node` with `tokio-console` run
+/// ```shell
+/// RUSTFLAGS="--cfg tokio_unstable" cargo run --bin massa-node --features instrument
+/// ```
 #[tokio::main]
 async fn main() {
-    // setup logging
-    let fmt_layer = tracing_subscriber::fmt::layer()
+    use tracing_subscriber::prelude::*;
+    // spawn the console server in the background, returning a `Layer`:
+    #[cfg(feature = "instrument")]
+    let tracing_layer = console_subscriber::spawn();
+    #[cfg(not(feature = "instrument"))]
+    let tracing_layer = tracing_subscriber::fmt::layer()
         .with_filter(match SETTINGS.logging.level {
             4 => LevelFilter::TRACE,
             3 => LevelFilter::DEBUG,
@@ -286,7 +303,11 @@ async fn main() {
         .with_filter(filter_fn(|metadata| {
             metadata.target().starts_with("massa") // ignore non-massa logs
         }));
-    tracing_subscriber::registry().with(fmt_layer).init();
+    // build a `Subscriber` by combining layers with a `tracing_subscriber::Registry`:
+    tracing_subscriber::registry()
+        // add the console layer to the subscriber or default layers...
+        .with(tracing_layer)
+        .init();
 
     // run
     loop {
@@ -340,13 +361,15 @@ async fn main() {
             }
         };
         stop(
-            bootstrap_manager,
-            consensus_manager,
             consensus_event_receiver,
-            execution_manager,
-            pool_manager,
-            protocol_manager,
-            network_manager,
+            Managers {
+                bootstrap_manager,
+                consensus_manager,
+                execution_manager,
+                pool_manager,
+                protocol_manager,
+                network_manager,
+            },
             api_private_handle,
             api_public_handle,
         )

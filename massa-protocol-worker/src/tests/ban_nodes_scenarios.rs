@@ -1,7 +1,8 @@
-// Copyright (c) 2021 MASSA LABS <info@massa.net>
+// Copyright (c) 2022 MASSA LABS <info@massa.net>
 
 use super::tools::protocol_test;
-use massa_models::{BlockHashMap, BlockHashSet, Slot};
+use massa_models::prehash::{Map, Set};
+use massa_models::{BlockId, Slot};
 use massa_network::NetworkCommand;
 use massa_protocol_exports::tests::tools;
 use massa_protocol_exports::ProtocolEvent;
@@ -264,7 +265,7 @@ async fn test_protocol_does_not_asks_for_block_from_banned_node_who_propagated_h
             protocol_command_sender
                 .send_wishlist_delta(
                     vec![expected_hash].into_iter().collect(),
-                    BlockHashSet::default(),
+                    Set::<BlockId>::default(),
                 )
                 .await
                 .expect("Failed to ask for block.");
@@ -323,9 +324,9 @@ async fn test_protocol_does_not_send_blocks_when_asked_for_by_banned_node() {
                 .expect("Failed to compute hash.");
 
             // 3. Simulate two nodes asking for a block.
-            for n in 0..2 {
+            for node in nodes.iter().take(2) {
                 network_controller
-                    .send_ask_for_block(nodes[n].id, vec![expected_hash])
+                    .send_ask_for_block(node.id, vec![expected_hash])
                     .await;
 
                 // Check protocol sends get block event to consensus.
@@ -358,7 +359,7 @@ async fn test_protocol_does_not_send_blocks_when_asked_for_by_banned_node() {
             tools::assert_banned_node(nodes[1].id, &mut network_controller).await;
 
             // 4. Simulate consensus sending block.
-            let mut results = BlockHashMap::default();
+            let mut results = Map::default();
             results.insert(expected_hash, Some((block, None, None)));
             protocol_command_sender
                 .send_get_blocks_results(results)

@@ -1,8 +1,8 @@
-// Copyright (c) 2021 MASSA LABS <info@massa.net>
+// Copyright (c) 2022 MASSA LABS <info@massa.net>
 
-use crate::settings::{BLOCK_ID_SIZE_BYTES, ENDORSEMENT_ID_SIZE_BYTES};
+use crate::constants::{BLOCK_ID_SIZE_BYTES, ENDORSEMENT_ID_SIZE_BYTES};
+use crate::prehash::PreHashed;
 use crate::{
-    hhasher::{HHashMap, HHashSet, PreHashed},
     serialization::{
         array_from_slice, DeserializeCompact, DeserializeVarInt, SerializeCompact, SerializeVarInt,
     },
@@ -16,24 +16,46 @@ use massa_signature::{
 use serde::{Deserialize, Serialize};
 use std::{fmt::Display, str::FromStr};
 
+const ENDORSEMENT_ID_STRING_PREFIX: &str = "END";
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
 pub struct EndorsementId(Hash);
 
 impl PreHashed for EndorsementId {}
 
-pub type EndorsementHashMap<T> = HHashMap<EndorsementId, T>;
-pub type EndorsementHashSet = HHashSet<EndorsementId>;
-
 impl std::fmt::Display for EndorsementId {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}", self.0.to_bs58_check())
+        if cfg!(feature = "hash-prefix") {
+            write!(
+                f,
+                "{}-{}",
+                ENDORSEMENT_ID_STRING_PREFIX,
+                self.0.to_bs58_check()
+            )
+        } else {
+            write!(f, "{}", self.0.to_bs58_check())
+        }
     }
 }
 
 impl FromStr for EndorsementId {
     type Err = ModelsError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(EndorsementId(Hash::from_str(s)?))
+        if cfg!(feature = "hash-prefix") {
+            let v: Vec<_> = s.split('-').collect();
+            if v.len() != 2 {
+                // assume there is no prefix
+                Ok(EndorsementId(Hash::from_str(s)?))
+            } else if v[0] != ENDORSEMENT_ID_STRING_PREFIX {
+                Err(ModelsError::WrongPrefix(
+                    ENDORSEMENT_ID_STRING_PREFIX.to_string(),
+                    v[0].to_string(),
+                ))
+            } else {
+                Ok(EndorsementId(Hash::from_str(v[1])?))
+            }
+        } else {
+            Ok(EndorsementId(Hash::from_str(s)?))
+        }
     }
 }
 
@@ -197,7 +219,7 @@ impl SerializeCompact for EndorsementContent {
 impl DeserializeCompact for EndorsementContent {
     fn from_bytes_compact(buffer: &[u8]) -> Result<(Self, usize), ModelsError> {
         let max_block_endorsements =
-            with_serialization_context(|context| context.max_block_endorsements);
+            with_serialization_context(|context| context.endorsement_count);
         let mut cursor = 0usize;
 
         // sender public key
@@ -247,9 +269,9 @@ mod tests {
     fn test_endorsement_serialization() {
         let ctx = crate::SerializationContext {
             max_block_size: 1024 * 1024,
-            max_block_operations: 1024,
-            parent_count: 3,
-            max_peer_list_length: 128,
+            max_operations_per_block: 1024,
+            thread_count: 3,
+            max_advertise_length: 128,
             max_message_size: 3 * 1024 * 1024,
             max_bootstrap_blocks: 100,
             max_bootstrap_cliques: 100,
@@ -261,7 +283,7 @@ mod tests {
             max_operations_per_message: 1024,
             max_endorsements_per_message: 1024,
             max_bootstrap_message_size: 100000000,
-            max_block_endorsements: 8,
+            endorsement_count: 8,
         };
         crate::init_serialization_context(ctx);
 

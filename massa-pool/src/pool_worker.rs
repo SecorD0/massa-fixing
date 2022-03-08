@@ -1,12 +1,13 @@
-// Copyright (c) 2021 MASSA LABS <info@massa.net>
+// Copyright (c) 2022 MASSA LABS <info@massa.net>
 
-use super::{error::PoolError, settings::PoolSettings};
-use crate::endorsement_pool::EndorsementPool;
+use super::error::PoolError;
 use crate::operation_pool::OperationPool;
+use crate::{endorsement_pool::EndorsementPool, settings::PoolConfig};
+use massa_models::prehash::{Map, Set};
 use massa_models::stats::PoolStats;
 use massa_models::{
-    Address, BlockId, Endorsement, EndorsementHashMap, EndorsementHashSet, EndorsementId,
-    Operation, OperationHashMap, OperationHashSet, OperationId, OperationSearchResult, Slot,
+    Address, BlockId, Endorsement, EndorsementId, Operation, OperationId, OperationSearchResult,
+    Slot,
 };
 use massa_protocol_exports::{ProtocolCommandSender, ProtocolPoolEvent, ProtocolPoolEventReceiver};
 use tokio::sync::{mpsc, oneshot};
@@ -15,40 +16,40 @@ use tracing::warn;
 /// Commands that can be processed by pool.
 #[derive(Debug)]
 pub enum PoolCommand {
-    AddOperations(OperationHashMap<Operation>),
+    AddOperations(Map<OperationId, Operation>),
     UpdateCurrentSlot(Slot),
     UpdateLatestFinalPeriods(Vec<u64>),
     GetOperationBatch {
         target_slot: Slot,
-        exclude: OperationHashSet,
+        exclude: Set<OperationId>,
         batch_size: usize,
         max_size: u64,
         response_tx: oneshot::Sender<Vec<(OperationId, Operation, u64)>>,
     },
     GetOperations {
-        operation_ids: OperationHashSet,
-        response_tx: oneshot::Sender<OperationHashMap<Operation>>,
+        operation_ids: Set<OperationId>,
+        response_tx: oneshot::Sender<Map<OperationId, Operation>>,
     },
     GetRecentOperations {
         address: Address,
-        response_tx: oneshot::Sender<OperationHashMap<OperationSearchResult>>,
+        response_tx: oneshot::Sender<Map<OperationId, OperationSearchResult>>,
     },
-    FinalOperations(OperationHashMap<(u64, u8)>), // (end of validity period, thread)
+    FinalOperations(Map<OperationId, (u64, u8)>), // (end of validity period, thread)
     GetEndorsements {
         target_slot: Slot,
         parent: BlockId,
         creators: Vec<Address>,
         response_tx: oneshot::Sender<Vec<(EndorsementId, Endorsement)>>,
     },
-    AddEndorsements(EndorsementHashMap<Endorsement>),
+    AddEndorsements(Map<EndorsementId, Endorsement>),
     GetStats(oneshot::Sender<PoolStats>),
     GetEndorsementsByAddress {
         address: Address,
-        response_tx: oneshot::Sender<EndorsementHashMap<Endorsement>>,
+        response_tx: oneshot::Sender<Map<EndorsementId, Endorsement>>,
     },
     GetEndorsementsById {
-        endorsements: EndorsementHashSet,
-        response_tx: oneshot::Sender<EndorsementHashMap<Endorsement>>,
+        endorsements: Set<EndorsementId>,
+        response_tx: oneshot::Sender<Map<EndorsementId, Endorsement>>,
     },
 }
 
@@ -85,9 +86,7 @@ impl PoolWorker {
     /// * controller_command_rx: Channel receiving pool commands.
     /// * controller_manager_rx: Channel receiving pool management commands.
     pub fn new(
-        pool_settings: &'static PoolSettings,
-        thread_count: u8,
-        operation_validity_periods: u64,
+        cfg: &'static PoolConfig,
         protocol_command_sender: ProtocolCommandSender,
         protocol_pool_event_receiver: ProtocolPoolEventReceiver,
         controller_command_rx: mpsc::Receiver<PoolCommand>,
@@ -99,12 +98,8 @@ impl PoolWorker {
             protocol_pool_event_receiver,
             controller_command_rx,
             controller_manager_rx,
-            operation_pool: OperationPool::new(
-                pool_settings,
-                thread_count,
-                operation_validity_periods,
-            ),
-            endorsement_pool: EndorsementPool::new(pool_settings, thread_count),
+            operation_pool: OperationPool::new(cfg),
+            endorsement_pool: EndorsementPool::new(cfg),
         })
     }
 

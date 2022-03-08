@@ -1,18 +1,19 @@
-// Copyright (c) 2021 MASSA LABS <info@massa.net>
+// Copyright (c) 2022 MASSA LABS <info@massa.net>
 
 use crate::repl::Output;
 use crate::rpc::Client;
 use anyhow::{anyhow, bail, Result};
 use console::style;
-use massa_models::address::AddressHashMap;
+use massa_models::api::ReadOnlyExecution;
 use massa_models::api::{AddressInfo, CompactAddressInfo};
+use massa_models::prehash::Map;
 use massa_models::timeslots::get_current_latest_block_slot;
 use massa_models::{
     Address, Amount, BlockId, EndorsementId, OperationContent, OperationId, OperationType, Slot,
 };
 use massa_signature::{generate_random_private_key, PrivateKey, PublicKey};
 use massa_time::MassaTime;
-use massa_wallet::Wallet;
+use massa_wallet::{Wallet, WalletError};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
@@ -134,6 +135,13 @@ pub enum Command {
 
     #[strum(
         ascii_case_insensitive,
+        props(args = "Address string"),
+        message = "sign provided string with given address (address must be in the wallet)"
+    )]
+    wallet_sign,
+
+    #[strum(
+        ascii_case_insensitive,
         props(args = "Address RollCount Fee"),
         message = "buy rolls with wallet address"
     )]
@@ -155,19 +163,26 @@ pub enum Command {
 
     #[strum(
         ascii_case_insensitive,
-        props(
-            args = "SenderAddress PathToBytecode MaxGas GasPrice Coins Fee",
-            todo = "[unstable] "
-        ),
+        props(args = "SenderAddress PathToBytecode MaxGas GasPrice Coins Fee",),
         message = "create and send an operation containing byte code"
     )]
     send_smart_contract,
 
     #[strum(
         ascii_case_insensitive,
+        props(args = "PathToBytecode MaxGas GasPrice Address",),
+        message = "execute byte code, address is optionnal. Nothing is really executed on chain"
+    )]
+    read_only_smart_contract,
+
+    #[strum(
+        ascii_case_insensitive,
         message = "show time remaining to end of current episode"
     )]
     when_episode_ends,
+
+    #[strum(ascii_case_insensitive, message = "tells you when moon")]
+    when_moon,
 }
 
 pub(crate) fn help() {
@@ -178,6 +193,12 @@ pub(crate) fn help() {
 macro_rules! rpc_error {
     ($e:expr) => {
         bail!("check if your node is running: {}", $e)
+    };
+}
+
+macro_rules! client_warning {
+    ($e:expr) => {
+        println!("{}: {}", style("WARNING").yellow(), $e)
     };
 }
 
@@ -199,7 +220,7 @@ impl Display for ExtendedWalletEntry {
 }
 
 #[derive(Serialize)]
-pub struct ExtendedWallet(AddressHashMap<ExtendedWalletEntry>);
+pub struct ExtendedWallet(Map<Address, ExtendedWalletEntry>);
 
 impl ExtendedWallet {
     fn new(wallet: &Wallet, addresses_info: &[AddressInfo]) -> Result<Self> {
@@ -425,7 +446,7 @@ impl Command {
 
             Command::wallet_info => {
                 if !json {
-                    println!("WARNING: do not share your private key");
+                    client_warning!("do not share your private key");
                 }
                 match client
                     .public
@@ -471,11 +492,17 @@ impl Command {
                 let mut res = "".to_string();
                 for key in parse_vec::<Address>(parameters)?.into_iter() {
                     match wallet.remove_address(key) {
-                        Some(_) => {
+                        Ok(_) => {
                             res.push_str(&format!("Removed address {} from the wallet\n", key));
                         }
-                        None => {
+                        Err(WalletError::MissingKeyError(_)) => {
                             res.push_str(&format!("Address {} wasn't in the wallet\n", key));
+                        }
+                        Err(_) => {
+                            res.push_str(&format!(
+                                "Failed to remove address {} from the wallet\n",
+                                key
+                            ));
                         }
                     }
                 }
@@ -509,15 +536,17 @@ impl Command {
                                 match addresses_info.get(0) {
                                     Some(info) => {
                                         if info.ledger_info.candidate_ledger_info.balance < total {
-                                            println!("WARNING: this operation may be rejected due to insuffisant balance");
+                                            client_warning!("this operation may be rejected due to insuffisant balance");
                                         }
                                     }
-                                    None => println!("WARNING: address {} not found", addr),
+                                    None => {
+                                        client_warning!(format!("address {} not found", addr))
+                                    }
                                 }
                             }
                         }
                         None => {
-                            println!("WARNING: the total amount hit the limit overflow, operation will certainly be rejected");
+                            client_warning!("the total amount hit the limit overflow, operation will certainly be rejected");
                         }
                     }
                 }
@@ -547,10 +576,10 @@ impl Command {
                                 if info.ledger_info.candidate_ledger_info.balance < fee
                                     || roll_count > info.rolls.candidate_rolls
                                 {
-                                    println!("WARNING: this operation may be rejected due to insuffisant balance or roll count");
+                                    client_warning!("this operation may be rejected due to insuffisant balance or roll count");
                                 }
                             }
-                            None => println!("WARNING: address {} not found", addr),
+                            None => client_warning!(format!("address {} not found", addr)),
                         }
                     }
                 }
@@ -584,15 +613,17 @@ impl Command {
                                 match addresses_info.get(0) {
                                     Some(info) => {
                                         if info.ledger_info.candidate_ledger_info.balance < total {
-                                            println!("WARNING: this operation may be rejected due to insuffisant balance");
+                                            client_warning!("this operation may be rejected due to insuffisant balance");
                                         }
                                     }
-                                    None => println!("WARNING: address {} not found", addr),
+                                    None => {
+                                        client_warning!(format!("address {} not found", addr))
+                                    }
                                 }
                             }
                         }
                         None => {
-                            println!("WARNING: the total amount hit the limit overflow, operation will certainly be rejected");
+                            client_warning!("the total amount hit the limit overflow, operation will certainly be rejected");
                         }
                     }
                 }
@@ -612,14 +643,25 @@ impl Command {
             }
             Command::when_episode_ends => {
                 let end = match client.public.get_status().await {
-                    Ok(node_status) => node_status.consensus_stats.end_timespan,
+                    Ok(node_status) => node_status.config.end_timestamp,
                     Err(e) => bail!("RpcError: {}", e),
                 };
-                let (days, hours, mins, secs) = end
-                    .saturating_sub(MassaTime::now()?)
-                    .days_hours_mins_secs()?; // compensation millis is zero
                 let mut res = "".to_string();
-                res.push_str(&format!("{} days, {} hours, {} minutes, {} seconds remaining until the end of the current episode", days, hours, mins, secs));
+                if let Some(e) = end {
+                    let (days, hours, mins, secs) =
+                        e.saturating_sub(MassaTime::now()?).days_hours_mins_secs()?; // compensation millis is zero
+
+                    res.push_str(&format!("{} days, {} hours, {} minutes, {} seconds remaining until the end of the current episode", days, hours, mins, secs));
+                } else {
+                    res.push_str("There is no end !")
+                }
+                if !json {
+                    println!("{}", res);
+                }
+                Ok(Box::new(()))
+            }
+            Command::when_moon => {
+                let res = "At night 🌔.";
                 if !json {
                     println!("{}", res);
                 }
@@ -649,19 +691,30 @@ impl Command {
                                 match addresses_info.get(0) {
                                     Some(info) => {
                                         if info.ledger_info.candidate_ledger_info.balance < total {
-                                            println!("WARNING: this operation may be rejected due to insuffisant balance");
+                                            client_warning!("this operation may be rejected due to insuffisant balance");
                                         }
                                     }
-                                    None => println!("WARNING: address {} not found", addr),
+                                    None => {
+                                        client_warning!(format!("address {} not found", addr));
+                                    }
                                 }
                             }
                         }
                         None => {
-                            println!("WARNING: the total amount hit the limit overflow, operation will certainly be rejected");
+                            client_warning!("the total amount hit the limit overflow, operation will certainly be rejected");
                         }
                     }
                 };
                 let data = get_file_as_byte_vec(&path).await?;
+                if !json {
+                    let max_block_size = match client.public.get_status().await {
+                        Ok(node_status) => node_status.config.max_block_size,
+                        Err(e) => bail!("RpcError: {}", e),
+                    };
+                    if data.len() > max_block_size as usize / 2 {
+                        client_warning!("bytecode size exeeded half of the maximum size of a block, operation will certainly be rejected");
+                    }
+                }
 
                 send_operation(
                     client,
@@ -677,6 +730,46 @@ impl Command {
                     json,
                 )
                 .await
+            }
+            Command::wallet_sign => {
+                if parameters.len() != 2 {
+                    bail!("wrong number of parameters");
+                }
+                let addr = parameters[0].parse::<Address>()?;
+                let msg = parameters[1].clone();
+                if let Some(signed) = wallet.sign_message(addr, msg.into_bytes()) {
+                    Ok(Box::new(signed))
+                } else {
+                    bail!("Missing public key")
+                }
+            }
+            Command::read_only_smart_contract => {
+                if parameters.len() != 3 && parameters.len() != 4 {
+                    bail!("wrong number of parameters");
+                }
+
+                let path = parameters[0].parse::<PathBuf>()?;
+                let max_gas = parameters[1].parse::<u64>()?;
+                let simulated_gas_price = parameters[2].parse::<Amount>()?;
+                let address = if let Some(adr) = parameters.get(3) {
+                    Some(adr.parse::<Address>()?)
+                } else {
+                    None
+                };
+                let bytecode = get_file_as_byte_vec(&path).await?;
+                match client
+                    .public
+                    .execute_read_only_request(ReadOnlyExecution {
+                        max_gas,
+                        simulated_gas_price,
+                        bytecode,
+                        address,
+                    })
+                    .await
+                {
+                    Ok(res) => Ok(Box::new(res)),
+                    Err(e) => rpc_error!(e),
+                }
             }
         }
     }
@@ -733,6 +826,6 @@ pub fn parse_vec<T: std::str::FromStr>(args: &[String]) -> anyhow::Result<Vec<T>
     args.iter().map(|x| x.parse::<T>()).collect()
 }
 
-async fn get_file_as_byte_vec(filename: &PathBuf) -> Result<Vec<u8>> {
+async fn get_file_as_byte_vec(filename: &std::path::Path) -> Result<Vec<u8>> {
     Ok(tokio::fs::read(filename).await?)
 }

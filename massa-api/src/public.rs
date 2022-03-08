@@ -1,37 +1,40 @@
-// Copyright (c) 2021 MASSA LABS <info@massa.net>
+// Copyright (c) 2022 MASSA LABS <info@massa.net>
 #![allow(clippy::too_many_arguments)]
 use crate::error::ApiError;
 use crate::{Endpoints, Public, RpcServer, StopHandle, API};
 use futures::{stream::FuturesUnordered, StreamExt};
 use jsonrpc_core::BoxFuture;
-use massa_consensus::{ConsensusCommandSender, ConsensusConfig, DiscardReason, ExportBlockStatus};
-use massa_execution::ExecutionCommandSender;
-use massa_models::address::{AddressHashMap, AddressHashSet};
-use massa_models::api::{
-    APISettings, AddressInfo, BlockInfo, BlockInfoContent, BlockSummary, EndorsementInfo,
-    IndexedSlot, NodeStatus, OperationInfo, TimeInterval,
+use massa_consensus_exports::{ConsensusCommandSender, ConsensusConfig};
+use massa_execution_exports::{
+    ExecutionController, ExecutionStackElement, ReadOnlyExecutionRequest,
 };
-use massa_models::clique::Clique;
-use massa_models::execution::ExecuteReadOnlyResponse;
-use massa_models::hhasher::BuildHHasher;
-use massa_models::massa_hash::PubkeySig;
-use massa_models::node::NodeId;
-use massa_models::output_event::SCOutputEvent;
-use massa_models::timeslots::{get_latest_block_slot_at_timestamp, time_range_to_slot_range};
+use massa_graph::{DiscardReason, ExportBlockStatus};
+use massa_models::api::SCELedgerInfo;
+use massa_models::execution::ReadOnlyResult;
 use massa_models::{
-    Address, Amount, BlockHashSet, BlockId, EndorsementHashSet, EndorsementId, Operation,
-    OperationHashMap, OperationHashSet, OperationId, Slot, Version,
+    api::{
+        APISettings, AddressInfo, BlockInfo, BlockInfoContent, BlockSummary, EndorsementInfo,
+        EventFilter, IndexedSlot, NodeStatus, OperationInfo, ReadOnlyExecution, TimeInterval,
+    },
+    clique::Clique,
+    composite::PubkeySig,
+    execution::ExecuteReadOnlyResponse,
+    node::NodeId,
+    output_event::SCOutputEvent,
+    prehash::{BuildMap, Map, Set},
+    timeslots::{get_latest_block_slot_at_timestamp, time_range_to_slot_range},
+    Address, BlockId, CompactConfig, EndorsementId, Operation, OperationId, Slot, Version,
 };
 use massa_network::{NetworkCommandSender, NetworkSettings};
 use massa_pool::PoolCommandSender;
-use massa_signature::PrivateKey;
+use massa_signature::{derive_public_key, generate_random_private_key, PrivateKey};
 use massa_time::MassaTime;
 use std::net::{IpAddr, SocketAddr};
 
 impl API<Public> {
     pub fn new(
         consensus_command_sender: ConsensusCommandSender,
-        execution_command_sender: ExecutionCommandSender,
+        execution_controller: Box<dyn ExecutionController>,
         api_settings: &'static APISettings,
         consensus_settings: ConsensusConfig,
         pool_command_sender: PoolCommandSender,
@@ -51,7 +54,7 @@ impl API<Public> {
             network_command_sender,
             compensation_millis,
             node_id,
-            execution_command_sender,
+            execution_controller,
         })
     }
 }
@@ -78,20 +81,71 @@ impl Endpoints for API<Public> {
 
     fn execute_read_only_request(
         &self,
-        _max_gas: u64,
-        _simulated_gas_price: Amount,
-        _bytecode: Vec<u8>,
-        _address: Option<Address>,
-    ) -> BoxFuture<Result<ExecuteReadOnlyResponse, ApiError>> {
-        crate::wrong_api::<ExecuteReadOnlyResponse>()
+        reqs: Vec<ReadOnlyExecution>,
+    ) -> BoxFuture<Result<Vec<ExecuteReadOnlyResponse>, ApiError>> {
+        if reqs.len() > self.0.api_settings.max_arguments as usize {
+            let closure =
+                async move || Err(ApiError::TooManyArguments("too many arguments".into()));
+            return Box::pin(closure());
+        }
+
+        let mut res: Vec<ExecuteReadOnlyResponse> = Vec::with_capacity(reqs.len());
+        for ReadOnlyExecution {
+            max_gas,
+            address,
+            simulated_gas_price,
+            bytecode,
+        } in reqs
+        {
+            let address = address.unwrap_or_else(|| {
+                // if no addr provided, use a random one
+                Address::from_public_key(&derive_public_key(&generate_random_private_key()))
+            });
+
+            // TODO:
+            // * set a maximum gas value for read-only executions to prevent attacks
+            // * stop mapping request and result, reuse execution's structures
+            // * remove async stuff
+
+            // translate request
+            let req = ReadOnlyExecutionRequest {
+                max_gas,
+                simulated_gas_price,
+                bytecode,
+                call_stack: vec![ExecutionStackElement {
+                    address,
+                    coins: Default::default(),
+                    owned_addresses: vec![address],
+                }],
+            };
+
+            // run
+            let result = self.0.execution_controller.execute_readonly_request(req);
+
+            // map result
+            let result = ExecuteReadOnlyResponse {
+                executed_at: result.as_ref().map_or_else(|_| Slot::new(0, 0), |v| v.slot),
+                result: result.as_ref().map_or_else(
+                    |err| ReadOnlyResult::Error(format!("readonly call failed: {}", err)),
+                    |_| ReadOnlyResult::Ok,
+                ),
+                output_events: result.map_or_else(|_| Default::default(), |v| v.events.export()),
+            };
+
+            res.push(result);
+        }
+
+        // return result
+        let closure = async move || Ok(res);
+        Box::pin(closure())
     }
 
     fn remove_staking_addresses(&self, _: Vec<Address>) -> BoxFuture<Result<(), ApiError>> {
         crate::wrong_api::<()>()
     }
 
-    fn get_staking_addresses(&self) -> BoxFuture<Result<AddressHashSet, ApiError>> {
-        crate::wrong_api::<AddressHashSet>()
+    fn get_staking_addresses(&self) -> BoxFuture<Result<Set<Address>, ApiError>> {
+        crate::wrong_api::<Set<Address>>()
     }
 
     fn ban(&self, _: Vec<IpAddr>) -> BoxFuture<Result<(), ApiError>> {
@@ -111,7 +165,7 @@ impl Endpoints for API<Public> {
         let compensation_millis = self.0.compensation_millis;
         let mut pool_command_sender = self.0.pool_command_sender.clone();
         let node_id = self.0.node_id;
-        let config = consensus_settings.compact_config();
+        let config = CompactConfig::default();
         let closure = async move || {
             let now = MassaTime::compensated_now(compensation_millis)?;
             let last_slot = get_latest_block_slot_at_timestamp(
@@ -160,7 +214,7 @@ impl Endpoints for API<Public> {
         Box::pin(closure())
     }
 
-    fn get_stakers(&self) -> BoxFuture<Result<AddressHashMap<u64>, ApiError>> {
+    fn get_stakers(&self) -> BoxFuture<Result<Map<Address, u64>, ApiError>> {
         let consensus_command_sender = self.0.consensus_command_sender.clone();
         let closure = async move || Ok(consensus_command_sender.get_active_stakers().await?);
         Box::pin(closure())
@@ -178,7 +232,7 @@ impl Endpoints for API<Public> {
                 return Err(ApiError::TooManyArguments("too many arguments".into()));
             }
 
-            let operation_ids: OperationHashSet = ops.iter().cloned().collect();
+            let operation_ids: Set<OperationId> = ops.iter().cloned().collect();
 
             // simultaneously ask pool and consensus
             let (pool_res, consensus_res) = tokio::join!(
@@ -186,11 +240,10 @@ impl Endpoints for API<Public> {
                 consensus_command_sender.get_operations(operation_ids)
             );
             let (pool_res, consensus_res) = (pool_res?, consensus_res?);
-            let mut res: OperationHashMap<OperationInfo> =
-                OperationHashMap::with_capacity_and_hasher(
-                    pool_res.len() + consensus_res.len(),
-                    BuildHHasher::default(),
-                );
+            let mut res: Map<OperationId, OperationInfo> = Map::with_capacity_and_hasher(
+                pool_res.len() + consensus_res.len(),
+                BuildMap::default(),
+            );
 
             // add pool info
             res.extend(pool_res.into_iter().map(|(id, operation)| {
@@ -239,7 +292,7 @@ impl Endpoints for API<Public> {
         let consensus_command_sender = self.0.consensus_command_sender.clone();
         let pool_command_sender = self.0.pool_command_sender.clone();
         let closure = async move || {
-            let mapped: EndorsementHashSet = eds.into_iter().collect();
+            let mapped: Set<EndorsementId> = eds.into_iter().collect();
             let mut res = consensus_command_sender
                 .get_endorsements_by_id(mapped.clone())
                 .await?;
@@ -361,10 +414,37 @@ impl Endpoints for API<Public> {
         let api_cfg = self.0.api_settings;
         let pool_command_sender = self.0.pool_command_sender.clone();
         let compensation_millis = self.0.compensation_millis;
-        let closure = async move || {
-            if addresses.len() as u64 > api_cfg.max_arguments {
-                return Err(ApiError::TooManyArguments("too many arguments".into()));
+
+        // todo make better use of SCE ledger info
+
+        // map SCE ledger info and check for address length
+        let sce_ledger_info = if addresses.len() as u64 > api_cfg.max_arguments {
+            Err(ApiError::TooManyArguments("too many arguments".into()))
+        } else {
+            // get SCE ledger info
+            let mut sce_ledger_info: Map<Address, SCELedgerInfo> =
+                Map::with_capacity_and_hasher(addresses.len(), BuildMap::default());
+            for addr in &addresses {
+                let active_entry = match self
+                    .0
+                    .execution_controller
+                    .get_final_and_active_ledger_entry(addr)
+                    .1
+                {
+                    None => continue,
+                    Some(v) => SCELedgerInfo {
+                        balance: v.parallel_balance,
+                        module: Some(v.bytecode),
+                        datastore: v.datastore.into_iter().collect(),
+                    },
+                };
+                sce_ledger_info.insert(*addr, active_entry);
             }
+            Ok(sce_ledger_info)
+        };
+
+        let closure = async move || {
+            let sce_ledger_info = sce_ledger_info?;
 
             let mut res = Vec::with_capacity(addresses.len());
 
@@ -393,12 +473,12 @@ impl Endpoints for API<Public> {
             let (next_draws, mut states) = (next_draws?, states?);
 
             // operations block and endorsement info
-            let mut operations: AddressHashMap<OperationHashSet> =
-                AddressHashMap::with_capacity_and_hasher(addresses.len(), BuildHHasher::default());
-            let mut blocks: AddressHashMap<BlockHashSet> =
-                AddressHashMap::with_capacity_and_hasher(addresses.len(), BuildHHasher::default());
-            let mut endorsements: AddressHashMap<EndorsementHashSet> =
-                AddressHashMap::with_capacity_and_hasher(addresses.len(), BuildHHasher::default());
+            let mut operations: Map<Address, Set<OperationId>> =
+                Map::with_capacity_and_hasher(addresses.len(), BuildMap::default());
+            let mut blocks: Map<Address, Set<BlockId>> =
+                Map::with_capacity_and_hasher(addresses.len(), BuildMap::default());
+            let mut endorsements: Map<Address, Set<EndorsementId>> =
+                Map::with_capacity_and_hasher(addresses.len(), BuildMap::default());
 
             let mut concurrent_getters = FuturesUnordered::new();
             for &address in addresses.iter() {
@@ -409,12 +489,12 @@ impl Endpoints for API<Public> {
                         .get_block_ids_by_creator(address)
                         .await?
                         .into_keys()
-                        .collect::<BlockHashSet>();
+                        .collect::<Set<BlockId>>();
                     let get_pool_ops = pool_cmd_snd.get_operations_involving_address(address);
                     let get_consensus_ops = cmd_snd.get_operations_involving_address(address);
                     let (get_pool_ops, get_consensus_ops) =
                         tokio::join!(get_pool_ops, get_consensus_ops);
-                    let gathered: OperationHashSet = get_pool_ops?
+                    let gathered: Set<OperationId> = get_pool_ops?
                         .into_keys()
                         .chain(get_consensus_ops?.into_keys())
                         .collect();
@@ -423,11 +503,11 @@ impl Endpoints for API<Public> {
                         let get_consensus_eds = cmd_snd.get_endorsements_by_address(address);
                         let (get_pool_eds, get_consensus_eds) =
                             tokio::join!(get_pool_eds, get_consensus_eds);
-                        let gathered_ed: EndorsementHashSet = get_pool_eds?
+                        let gathered_ed: Set<EndorsementId> = get_pool_eds?
                             .into_keys()
                             .chain(get_consensus_eds?.into_keys())
                             .collect();
-                    Result::<(Address, BlockHashSet, OperationHashSet, EndorsementHashSet), ApiError>::Ok((
+                    Result::<(Address, Set<BlockId>, Set<OperationId>, Set<EndorsementId>), ApiError>::Ok((
                         address, blocks, gathered, gathered_ed
                     ))
                 });
@@ -472,6 +552,7 @@ impl Endpoints for API<Public> {
                         .remove(&address)
                         .ok_or(ApiError::NotFound)?,
                     production_stats: state.production_stats,
+                    sce_ledger_info: sce_ledger_info.get(&address).cloned().unwrap_or_default(),
                 })
             }
             Ok(res)
@@ -492,7 +573,7 @@ impl Endpoints for API<Public> {
             let to_send = ops
                 .into_iter()
                 .map(|op| Ok((op.verify_integrity()?, op)))
-                .collect::<Result<OperationHashMap<_>, ApiError>>()?;
+                .collect::<Result<Map<OperationId, _>, ApiError>>()?;
             let ids = to_send.keys().copied().collect();
             cmd_sender.add_operations(to_send).await?;
             Ok(ids)
@@ -500,43 +581,33 @@ impl Endpoints for API<Public> {
         Box::pin(closure())
     }
 
-    fn get_sc_output_event_by_slot_range(
+    /// Get events optionnally filtered by:
+    /// * start slot
+    /// * end slot
+    /// * emitter address
+    /// * original caller address
+    /// * operation id
+    fn get_filtered_sc_output_event(
         &self,
-        start: Slot,
-        end: Slot,
+        EventFilter {
+            start,
+            end,
+            emitter_address,
+            original_caller_address,
+            original_operation_id,
+        }: EventFilter,
     ) -> BoxFuture<Result<Vec<SCOutputEvent>, ApiError>> {
-        let execution_command_sender = self.0.execution_command_sender.clone();
-        let closure = async move || {
-            Ok(execution_command_sender
-                .get_sc_output_event_by_slot_range(start, end)
-                .await?)
-        };
-        Box::pin(closure())
-    }
+        // get events
+        let events = self.0.execution_controller.get_filtered_sc_output_event(
+            start,
+            end,
+            emitter_address,
+            original_caller_address,
+            original_operation_id,
+        );
 
-    fn get_sc_output_event_by_sc_address(
-        &self,
-        address: Address,
-    ) -> BoxFuture<Result<Vec<SCOutputEvent>, ApiError>> {
-        let execution_command_sender = self.0.execution_command_sender.clone();
-        let closure = async move || {
-            Ok(execution_command_sender
-                .get_sc_output_event_by_sc_address(address)
-                .await?)
-        };
-        Box::pin(closure())
-    }
-
-    fn get_sc_output_event_by_caller_address(
-        &self,
-        address: Address,
-    ) -> BoxFuture<Result<Vec<SCOutputEvent>, ApiError>> {
-        let execution_command_sender = self.0.execution_command_sender.clone();
-        let closure = async move || {
-            Ok(execution_command_sender
-                .get_sc_output_event_by_caller_address(address)
-                .await?)
-        };
+        // TODO get rid of the async part
+        let closure = async move || Ok(events);
         Box::pin(closure())
     }
 }

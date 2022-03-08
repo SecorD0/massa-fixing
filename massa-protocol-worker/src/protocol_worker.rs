@@ -1,20 +1,20 @@
-// Copyright (c) 2021 MASSA LABS <info@massa.net>
+// Copyright (c) 2022 MASSA LABS <info@massa.net>
 
 use itertools::Itertools;
 use massa_hash::hash::Hash;
 use massa_logging::massa_trace;
-use massa_models::hhasher::BuildHHasher;
-use massa_models::node::NodeId;
-use massa_models::Endorsement;
 use massa_models::{
-    Address, Block, BlockHashMap, BlockHashSet, BlockHeader, BlockId, EndorsementHashMap,
-    EndorsementHashSet, Operation, OperationHashMap, OperationHashSet, OperationId, OperationType,
+    constants::CHANNEL_SIZE,
+    node::NodeId,
+    prehash::{BuildMap, Map, Set},
+    Address, Block, BlockHeader, BlockId, Endorsement, EndorsementId, Operation, OperationId,
+    OperationType,
 };
 use massa_network::{NetworkCommandSender, NetworkEvent, NetworkEventReceiver};
 use massa_protocol_exports::{
     ProtocolCommand, ProtocolCommandSender, ProtocolError, ProtocolEvent, ProtocolEventReceiver,
     ProtocolManagementCommand, ProtocolManager, ProtocolPoolEvent, ProtocolPoolEventReceiver,
-    ProtocolSettings, CHANNEL_SIZE,
+    ProtocolSettings,
 };
 use massa_time::TimeError;
 use std::collections::{HashMap, HashSet};
@@ -54,21 +54,24 @@ pub async fn start_protocol_controller(
     debug!("starting protocol controller");
 
     // launch worker
-    let (event_tx, event_rx) = mpsc::channel::<ProtocolEvent>(CHANNEL_SIZE);
-    let (pool_event_tx, pool_event_rx) = mpsc::channel::<ProtocolPoolEvent>(CHANNEL_SIZE);
-    let (command_tx, command_rx) = mpsc::channel::<ProtocolCommand>(CHANNEL_SIZE);
-    let (manager_tx, manager_rx) = mpsc::channel::<ProtocolManagementCommand>(1);
+    let (controller_event_tx, event_rx) = mpsc::channel::<ProtocolEvent>(CHANNEL_SIZE);
+    let (controller_pool_event_tx, pool_event_rx) =
+        mpsc::channel::<ProtocolPoolEvent>(CHANNEL_SIZE);
+    let (command_tx, controller_command_rx) = mpsc::channel::<ProtocolCommand>(CHANNEL_SIZE);
+    let (manager_tx, controller_manager_rx) = mpsc::channel::<ProtocolManagementCommand>(1);
     let join_handle = tokio::spawn(async move {
         let res = ProtocolWorker::new(
             protocol_settings,
             operation_validity_periods,
             max_block_gas,
-            network_command_sender,
-            network_event_receiver,
-            event_tx,
-            pool_event_tx,
-            command_rx,
-            manager_rx,
+            ProtocolWorkerChannels {
+                network_command_sender,
+                network_event_receiver,
+                controller_event_tx,
+                controller_pool_event_tx,
+                controller_command_rx,
+                controller_manager_rx,
+            },
         )
         .run_loop()
         .await;
@@ -94,15 +97,11 @@ pub async fn start_protocol_controller(
 
 //put in a module to block private access from Protocol_worker.
 mod nodeinfo {
-    use std::collections::VecDeque;
-
-    use massa_models::{
-        hhasher::BuildHHasher, BlockHashMap, BlockId, EndorsementHashSet, EndorsementId,
-        OperationHashSet, OperationId,
-    };
-    use tokio::time::Instant;
-
+    use massa_models::prehash::{BuildMap, Map, Set};
+    use massa_models::{BlockId, EndorsementId, OperationId};
     use massa_protocol_exports::ProtocolSettings;
+    use std::collections::VecDeque;
+    use tokio::time::Instant;
 
     /// Information about a node we are connected to,
     /// essentially our view of its state.
@@ -113,18 +112,18 @@ mod nodeinfo {
     pub struct NodeInfo {
         /// The blocks the node "knows about",
         /// defined as the one the node propagated headers to us for.
-        known_blocks: BlockHashMap<(bool, Instant)>,
+        pub known_blocks: Map<BlockId, (bool, Instant)>,
         /// The blocks the node asked for.
-        wanted_blocks: BlockHashMap<Instant>,
+        pub wanted_blocks: Map<BlockId, Instant>,
         /// Blocks we asked that node for
-        pub asked_blocks: BlockHashMap<Instant>,
+        pub asked_blocks: Map<BlockId, Instant>,
         /// Instant when the node was added
         pub connection_instant: Instant,
         /// all known operations
-        pub known_operations: OperationHashSet,
+        pub known_operations: Set<OperationId>,
         pub known_operations_queue: VecDeque<OperationId>,
         /// all known endorsements
-        pub known_endorsements: EndorsementHashSet,
+        pub known_endorsements: Set<EndorsementId>,
         pub known_endorsements_queue: VecDeque<EndorsementId>,
     }
 
@@ -132,24 +131,24 @@ mod nodeinfo {
         /// Creates empty node info
         pub fn new(pool_settings: &'static ProtocolSettings) -> NodeInfo {
             NodeInfo {
-                known_blocks: BlockHashMap::with_capacity_and_hasher(
+                known_blocks: Map::with_capacity_and_hasher(
                     pool_settings.max_node_known_blocks_size,
-                    BuildHHasher::default(),
+                    BuildMap::default(),
                 ),
-                wanted_blocks: BlockHashMap::with_capacity_and_hasher(
+                wanted_blocks: Map::with_capacity_and_hasher(
                     pool_settings.max_node_wanted_blocks_size,
-                    BuildHHasher::default(),
+                    BuildMap::default(),
                 ),
                 asked_blocks: Default::default(),
                 connection_instant: Instant::now(),
-                known_operations: OperationHashSet::with_capacity_and_hasher(
+                known_operations: Set::<OperationId>::with_capacity_and_hasher(
                     pool_settings.max_known_ops_size,
-                    BuildHHasher::default(),
+                    BuildMap::default(),
                 ),
                 known_operations_queue: VecDeque::with_capacity(pool_settings.max_known_ops_size),
-                known_endorsements: EndorsementHashSet::with_capacity_and_hasher(
+                known_endorsements: Set::<EndorsementId>::with_capacity_and_hasher(
                     pool_settings.max_known_endorsements_size,
-                    BuildHHasher::default(),
+                    BuildMap::default(),
                 ),
                 known_endorsements_queue: VecDeque::with_capacity(
                     pool_settings.max_known_endorsements_size,
@@ -161,6 +160,21 @@ mod nodeinfo {
         /// in a option if we don't know if that node knows that block or not
         pub fn get_known_block(&self, block_id: &BlockId) -> Option<&(bool, Instant)> {
             self.known_blocks.get(block_id)
+        }
+
+        /// Remove the oldest items from known_blocks
+        /// to ensure it contains at most max_node_known_blocks_size items.
+        /// This algorithm is optimized for cases where there are no more than a couple excess items, ideally just one.
+        fn remove_excess_known_blocks(&mut self, max_node_known_blocks_size: usize) {
+            while self.known_blocks.len() > max_node_known_blocks_size {
+                // remove oldest item
+                let (&h, _) = self
+                    .known_blocks
+                    .iter()
+                    .min_by_key(|(h, (_, t))| (*t, *h))
+                    .unwrap(); // never None because is the collection is empty, while loop isn't executed.
+                self.known_blocks.remove(&h);
+            }
         }
 
         /// Insert knowledge of a list of blocks in NodeInfo
@@ -181,15 +195,7 @@ mod nodeinfo {
             for block_id in block_ids {
                 self.known_blocks.insert(*block_id, (val, instant));
             }
-            while self.known_blocks.len() > max_node_known_blocks_size {
-                // remove oldest item
-                let (&h, _) = self
-                    .known_blocks
-                    .iter()
-                    .min_by_key(|(h, (_, t))| (*t, *h))
-                    .unwrap(); // never None because is the collection is empty, while loop isn't executed.
-                self.known_blocks.remove(&h);
-            }
+            self.remove_excess_known_blocks(max_node_known_blocks_size);
         }
 
         pub fn insert_known_endorsements(
@@ -213,7 +219,7 @@ mod nodeinfo {
             self.known_endorsements.contains(endorsement_id)
         }
 
-        pub fn insert_known_ops(&mut self, ops: OperationHashSet, max_ops_nb: usize) {
+        pub fn insert_known_ops(&mut self, ops: Set<OperationId>, max_ops_nb: usize) {
             for operation_id in ops.into_iter() {
                 if self.known_operations.insert(operation_id) {
                     self.known_operations_queue.push_front(operation_id);
@@ -230,27 +236,42 @@ mod nodeinfo {
             self.known_operations.contains(op)
         }
 
-        /// insert a block in wanted list of a node.
-        /// Note that it also insert the block as a not known block for that node.
-        pub fn insert_wanted_blocks(
-            &mut self,
-            block_id: BlockId,
-            max_node_wanted_blocks_size: usize,
-        ) {
-            self.wanted_blocks.insert(block_id, Instant::now());
-            while self.known_blocks.len() > max_node_wanted_blocks_size {
+        /// Remove the oldest items from wanted_blocks
+        /// to ensure it contains at most max_node_wanted_blocks_size items.
+        /// This algorithm is optimized for cases where there are no more than a couple excess items, ideally just one.
+        fn remove_excess_wanted_blocks(&mut self, max_node_wanted_blocks_size: usize) {
+            while self.wanted_blocks.len() > max_node_wanted_blocks_size {
                 // remove oldest item
                 let (&h, _) = self
-                    .known_blocks
+                    .wanted_blocks
                     .iter()
                     .min_by_key(|(h, t)| (*t, *h))
                     .unwrap(); // never None because is the collection is empty, while loop isn't executed.
-                self.known_blocks.remove(&h);
+                self.wanted_blocks.remove(&h);
             }
         }
 
-        /// If given node previously manifested it wanted given block.
-        pub fn contains_wanted_block(&mut self, block_id: &BlockId) -> bool {
+        /// Insert a block in the wanted list of a node.
+        /// Also lists the block as not known by the node
+        pub fn insert_wanted_block(
+            &mut self,
+            block_id: BlockId,
+            max_node_wanted_blocks_size: usize,
+            max_node_known_blocks_size: usize,
+        ) {
+            // Insert into known_blocks
+            let now = Instant::now();
+            self.wanted_blocks.insert(block_id, now);
+            self.remove_excess_wanted_blocks(max_node_wanted_blocks_size);
+
+            // If the node wants a block, it means that it doesn't have it.
+            // To avoid asking the node for this block in the meantime,
+            // mark the node as not knowing the block.
+            self.insert_known_blocks(&[block_id], false, now, max_node_known_blocks_size);
+        }
+
+        /// returns whether a node wants a block, and if so, updates the timestamp of that info to now()
+        pub fn contains_wanted_block_update_timestamp(&mut self, block_id: &BlockId) -> bool {
             self.wanted_blocks
                 .get_mut(block_id)
                 .map(|instant| *instant = Instant::now())
@@ -267,14 +288,14 @@ mod nodeinfo {
 /// Info about a block we've seen
 struct BlockInfo {
     /// Endorsements contained in the block header.
-    endorsements: EndorsementHashMap<u32>,
+    endorsements: Map<EndorsementId, u32>,
     /// Operations contained in the block,
     /// if we've received them already, and none otherwise.
     operations: Option<Vec<OperationId>>,
 }
 
 impl BlockInfo {
-    fn new(endorsements: EndorsementHashMap<u32>, operations: Option<Vec<OperationId>>) -> Self {
+    fn new(endorsements: Map<EndorsementId, u32>, operations: Option<Vec<OperationId>>) -> Self {
         BlockInfo {
             endorsements,
             operations,
@@ -304,13 +325,22 @@ pub struct ProtocolWorker {
     /// Ids of active nodes mapped to node info.
     active_nodes: HashMap<NodeId, nodeinfo::NodeInfo>,
     /// List of wanted blocks.
-    block_wishlist: BlockHashSet,
+    block_wishlist: Set<BlockId>,
     /// List of processed endorsements
-    checked_endorsements: EndorsementHashSet,
+    checked_endorsements: Set<EndorsementId>,
     /// List of processed operations
-    checked_operations: OperationHashSet,
+    checked_operations: Set<OperationId>,
     /// List of processed headers
-    checked_headers: BlockHashMap<BlockInfo>,
+    checked_headers: Map<BlockId, BlockInfo>,
+}
+
+pub struct ProtocolWorkerChannels {
+    pub network_command_sender: NetworkCommandSender,
+    pub network_event_receiver: NetworkEventReceiver,
+    pub controller_event_tx: mpsc::Sender<ProtocolEvent>,
+    pub controller_pool_event_tx: mpsc::Sender<ProtocolPoolEvent>,
+    pub controller_command_rx: mpsc::Receiver<ProtocolCommand>,
+    pub controller_manager_rx: mpsc::Receiver<ProtocolManagementCommand>,
 }
 
 impl ProtocolWorker {
@@ -329,12 +359,14 @@ impl ProtocolWorker {
         protocol_settings: &'static ProtocolSettings,
         operation_validity_periods: u64,
         max_block_gas: u64,
-        network_command_sender: NetworkCommandSender,
-        network_event_receiver: NetworkEventReceiver,
-        controller_event_tx: mpsc::Sender<ProtocolEvent>,
-        controller_pool_event_tx: mpsc::Sender<ProtocolPoolEvent>,
-        controller_command_rx: mpsc::Receiver<ProtocolCommand>,
-        controller_manager_rx: mpsc::Receiver<ProtocolManagementCommand>,
+        ProtocolWorkerChannels {
+            network_command_sender,
+            network_event_receiver,
+            controller_event_tx,
+            controller_pool_event_tx,
+            controller_command_rx,
+            controller_manager_rx,
+        }: ProtocolWorkerChannels,
     ) -> ProtocolWorker {
         ProtocolWorker {
             protocol_settings,
@@ -489,7 +521,7 @@ impl ProtocolWorker {
                         );
                         massa_trace!("protocol.protocol_worker.process_command.integrated_block.send_block", { "node": node_id, "block_id": block_id, "block": block });
                         self.network_command_sender
-                            .send_block(*node_id, block.clone())
+                            .send_block(*node_id, *block.clone())
                             .await
                             .map_err(|_| {
                                 ProtocolError::ChannelError(
@@ -596,7 +628,7 @@ impl ProtocolWorker {
                                 { "block_id": block_id }
                             );
                             for (node_id, node_info) in self.active_nodes.iter_mut() {
-                                if node_info.contains_wanted_block(&block_id) {
+                                if node_info.contains_wanted_block_update_timestamp(&block_id) {
                                     massa_trace!("protocol.protocol_worker.process_command.block_not_found.notify_node", { "node": node_id, "block_id": block_id });
                                     self.network_command_sender
                                         .block_not_found(*node_id, block_id)
@@ -627,7 +659,7 @@ impl ProtocolWorker {
                     { "operations": ops }
                 );
                 for (node, node_info) in self.active_nodes.iter_mut() {
-                    let new_ops: OperationHashMap<Operation> = ops
+                    let new_ops: Map<OperationId, Operation> = ops
                         .iter()
                         .filter(|(id, _)| !node_info.knows_op(*id))
                         .map(|(k, v)| (*k, v.clone()))
@@ -650,7 +682,7 @@ impl ProtocolWorker {
                     { "endorsements": endorsements }
                 );
                 for (node, node_info) in self.active_nodes.iter_mut() {
-                    let new_endorsements: EndorsementHashMap<Endorsement> = endorsements
+                    let new_endorsements: Map<EndorsementId, Endorsement> = endorsements
                         .iter()
                         .filter(|(id, _)| !node_info.knows_endorsement(*id))
                         .map(|(k, v)| (*k, v.clone()))
@@ -675,7 +707,7 @@ impl ProtocolWorker {
         Ok(())
     }
 
-    fn stop_asking_blocks(&mut self, remove_hashes: BlockHashSet) -> Result<(), ProtocolError> {
+    fn stop_asking_blocks(&mut self, remove_hashes: Set<BlockId>) -> Result<(), ProtocolError> {
         massa_trace!("protocol.protocol_worker.stop_asking_blocks", {
             "remove": remove_hashes
         });
@@ -702,7 +734,7 @@ impl ProtocolWorker {
             .ok_or(TimeError::TimeOverflowError)?;
 
         // list blocks to re-ask and gather candidate nodes to ask from
-        let mut candidate_nodes: BlockHashMap<Vec<_>> = Default::default();
+        let mut candidate_nodes: Map<BlockId, Vec<_>> = Default::default();
         let mut ask_block_list: HashMap<NodeId, Vec<BlockId>> = Default::default();
 
         // list blocks to re-ask and from whom
@@ -907,7 +939,7 @@ impl ProtocolWorker {
         &mut self,
         header: &BlockHeader,
         source_node_id: &NodeId,
-    ) -> Result<Option<(BlockId, EndorsementHashMap<u32>, bool)>, ProtocolError> {
+    ) -> Result<Option<(BlockId, Map<EndorsementId, u32>, bool)>, ProtocolError> {
         massa_trace!("protocol.protocol_worker.note_header_from_node", { "node": source_node_id, "header": header });
 
         // check header integrity
@@ -1088,8 +1120,8 @@ impl ProtocolWorker {
     ) -> Result<
         Option<(
             BlockId,
-            OperationHashMap<(usize, u64)>,
-            EndorsementHashMap<u32>,
+            Map<OperationId, (usize, u64)>,
+            Map<EndorsementId, u32>,
         )>,
         ProtocolError,
     > {
@@ -1139,7 +1171,7 @@ impl ProtocolWorker {
 
             // check address and thread
             let addr = Address::from_public_key(&op.content.sender_public_key);
-            if addr.get_thread(serialization_context.parent_count)
+            if addr.get_thread(serialization_context.thread_count)
                 != block.header.content.slot.thread
             {
                 massa_trace!("protocol.protocol_worker.note_block_from_node.err_op_thread",
@@ -1190,16 +1222,14 @@ impl ProtocolWorker {
         operations: Vec<Operation>,
         source_node_id: &NodeId,
         propagate: bool,
-    ) -> Result<(Vec<OperationId>, OperationHashMap<(usize, u64)>, bool, u64), ProtocolError> {
+    ) -> Result<(Vec<OperationId>, Map<OperationId, (usize, u64)>, bool, u64), ProtocolError> {
         massa_trace!("protocol.protocol_worker.note_operations_from_node", { "node": source_node_id, "operations": operations });
         let mut total_gas = 0u64;
         let length = operations.len();
         let mut has_duplicate_operations = false;
         let mut seen_ops = vec![];
-        let mut new_operations =
-            OperationHashMap::with_capacity_and_hasher(length, BuildHHasher::default());
-        let mut received_ids =
-            OperationHashMap::with_capacity_and_hasher(length, BuildHHasher::default());
+        let mut new_operations = Map::with_capacity_and_hasher(length, BuildMap::default());
+        let mut received_ids = Map::with_capacity_and_hasher(length, BuildMap::default());
         for (idx, operation) in operations.into_iter().enumerate() {
             let operation_id = operation.get_operation_id()?;
             seen_ops.push(operation_id);
@@ -1264,14 +1294,13 @@ impl ProtocolWorker {
         endorsements: Vec<Endorsement>,
         source_node_id: &NodeId,
         propagate: bool,
-    ) -> Result<(EndorsementHashMap<u32>, bool), ProtocolError> {
+    ) -> Result<(Map<EndorsementId, u32>, bool), ProtocolError> {
         massa_trace!("protocol.protocol_worker.note_endorsements_from_node", { "node": source_node_id, "endorsements": endorsements});
         let length = endorsements.len();
         let mut contains_duplicates = false;
 
-        let mut new_endorsements =
-            EndorsementHashMap::with_capacity_and_hasher(length, BuildHHasher::default());
-        let mut endorsement_ids = EndorsementHashMap::default();
+        let mut new_endorsements = Map::with_capacity_and_hasher(length, BuildMap::default());
+        let mut endorsement_ids = Map::default();
         for endorsement in endorsements.into_iter() {
             let endorsement_id = endorsement.compute_endorsement_id()?;
             if endorsement_ids
@@ -1349,8 +1378,7 @@ impl ProtocolWorker {
                 if let Some((block_id, operation_set, endorsement_ids)) =
                     self.note_block_from_node(&block, &from_node_id).await?
                 {
-                    let mut set =
-                        BlockHashSet::with_capacity_and_hasher(1, BuildHHasher::default());
+                    let mut set = Set::<BlockId>::with_capacity_and_hasher(1, BuildMap::default());
                     set.insert(block_id);
                     self.stop_asking_blocks(set)?;
                     self.send_protocol_event(ProtocolEvent::ReceivedBlock {
@@ -1362,7 +1390,7 @@ impl ProtocolWorker {
                     .await;
                     self.update_ask_block(block_ask_timer).await?;
                 } else {
-                    warn!("node {} sent us critically incorrect block", from_node_id);
+                    warn!("node {} sent us critically incorrect block, which may be an attack attempt by the remote node or a loss of sync between us and the remote node", from_node_id);
                     let _ = self.ban_node(&from_node_id).await;
                 }
             }
@@ -1373,9 +1401,10 @@ impl ProtocolWorker {
                 massa_trace!("protocol.protocol_worker.on_network_event.asked_for_blocks", { "node": from_node_id, "hashlist": list});
                 if let Some(node_info) = self.active_nodes.get_mut(&from_node_id) {
                     for hash in &list {
-                        node_info.insert_wanted_blocks(
+                        node_info.insert_wanted_block(
                             *hash,
                             self.protocol_settings.max_node_wanted_blocks_size,
+                            self.protocol_settings.max_node_known_blocks_size,
                         );
                     }
                 } else {
@@ -1402,7 +1431,7 @@ impl ProtocolWorker {
                     self.update_ask_block(block_ask_timer).await?;
                 } else {
                     warn!(
-                        "node {} sent us critically incorrect header",
+                        "node {} sent us critically incorrect header, which may be an attack attempt by the remote node or a loss of sync between us and the remote node",
                         source_node_id,
                     );
                     let _ = self.ban_node(&source_node_id).await;
@@ -1429,7 +1458,7 @@ impl ProtocolWorker {
                     .await
                     .is_err()
                 {
-                    warn!("node {} sent us critically incorrect operation", node,);
+                    warn!("node {} sent us critically incorrect operation, which may be an attack attempt by the remote node or a loss of sync between us and the remote node", node,);
                     let _ = self.ban_node(&node).await;
                 }
             }
@@ -1440,7 +1469,7 @@ impl ProtocolWorker {
                     .await
                     .is_err()
                 {
-                    warn!("node {} sent us critically incorrect endorsements", node,);
+                    warn!("node {} sent us critically incorrect endorsements, which may be an attack attempt by the remote node or a loss of sync between us and the remote node", node,);
                     let _ = self.ban_node(&node).await;
                 }
             }
@@ -1463,6 +1492,45 @@ mod tests {
     pub fn get_dummy_block_id(s: &str) -> BlockId {
         BlockId(Hash::compute_from(s.as_bytes()))
     }
+
+    /// Test the pruning behavior of NodeInfo::insert_wanted_block
+    #[test]
+    #[serial]
+    fn test_node_info_wanted_blocks_pruning() {
+        let protocol_settings = &PROTOCOL_SETTINGS;
+        let mut nodeinfo = NodeInfo::new(protocol_settings);
+
+        // cap to 10 wanted blocks
+        let max_node_wanted_blocks_size = 10;
+
+        // cap to 5 known blocks
+        let max_node_known_blocks_size = 5;
+
+        // try to insert 15 wanted blocks
+        for index in 0usize..15 {
+            let hash = get_dummy_block_id(&index.to_string());
+            nodeinfo.insert_wanted_block(
+                hash,
+                max_node_wanted_blocks_size,
+                max_node_known_blocks_size,
+            );
+        }
+
+        // ensure that only max_node_wanted_blocks_size wanted blocks are kept
+        assert_eq!(
+            nodeinfo.wanted_blocks.len(),
+            max_node_wanted_blocks_size,
+            "wanted_blocks pruning incorrect"
+        );
+
+        // ensure that there are max_node_known_blocks_size entries for knwon blocks
+        assert_eq!(
+            nodeinfo.known_blocks.len(),
+            max_node_known_blocks_size,
+            "known_blocks pruning incorrect"
+        );
+    }
+
     #[test]
     #[serial]
     fn test_node_info_know_block() {
@@ -1522,36 +1590,55 @@ mod tests {
     #[serial]
     fn test_node_info_wanted_block() {
         let max_node_wanted_blocks_size = 10;
+        let max_node_known_blocks_size = 10;
         let protocol_settings = &PROTOCOL_SETTINGS;
         let mut nodeinfo = NodeInfo::new(protocol_settings);
 
         let hash = get_dummy_block_id("test");
-        nodeinfo.insert_wanted_blocks(hash, max_node_wanted_blocks_size);
-        assert!(nodeinfo.contains_wanted_block(&hash));
+        nodeinfo.insert_wanted_block(
+            hash,
+            max_node_wanted_blocks_size,
+            max_node_known_blocks_size,
+        );
+        assert!(nodeinfo.contains_wanted_block_update_timestamp(&hash));
         nodeinfo.remove_wanted_block(&hash);
-        assert!(!nodeinfo.contains_wanted_block(&hash));
+        assert!(!nodeinfo.contains_wanted_block_update_timestamp(&hash));
 
         for index in 0..9 {
             let hash = get_dummy_block_id(&index.to_string());
-            nodeinfo.insert_wanted_blocks(hash, max_node_wanted_blocks_size);
-            assert!(nodeinfo.contains_wanted_block(&hash));
+            nodeinfo.insert_wanted_block(
+                hash,
+                max_node_wanted_blocks_size,
+                max_node_known_blocks_size,
+            );
+            assert!(nodeinfo.contains_wanted_block_update_timestamp(&hash));
         }
 
         // change the oldest time to now
-        assert!(nodeinfo.contains_wanted_block(&get_dummy_block_id(&0.to_string())));
+        assert!(
+            nodeinfo.contains_wanted_block_update_timestamp(&get_dummy_block_id(&0.to_string()))
+        );
         // add hash that triggers container pruning
-        nodeinfo.insert_wanted_blocks(get_dummy_block_id("test2"), max_node_wanted_blocks_size);
+        nodeinfo.insert_wanted_block(
+            get_dummy_block_id("test2"),
+            max_node_wanted_blocks_size,
+            max_node_known_blocks_size,
+        );
 
         // 0 is present because because its timestamp has been updated with contains_wanted_block
-        assert!(nodeinfo.contains_wanted_block(&get_dummy_block_id(&0.to_string())));
+        assert!(
+            nodeinfo.contains_wanted_block_update_timestamp(&get_dummy_block_id(&0.to_string()))
+        );
 
         // 1 has been removed because it's the oldest.
-        assert!(nodeinfo.contains_wanted_block(&get_dummy_block_id(&1.to_string())));
+        assert!(
+            nodeinfo.contains_wanted_block_update_timestamp(&get_dummy_block_id(&1.to_string()))
+        );
 
         // Other blocks are present.
         for index in 2..9 {
             let hash = get_dummy_block_id(&index.to_string());
-            assert!(nodeinfo.contains_wanted_block(&hash));
+            assert!(nodeinfo.contains_wanted_block_update_timestamp(&hash));
         }
     }
 }

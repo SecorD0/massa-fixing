@@ -1,4 +1,4 @@
-// Copyright (c) 2021 MASSA LABS <info@massa.net>
+// Copyright (c) 2022 MASSA LABS <info@massa.net>
 
 use crate::ProtocolEvent;
 use displaydoc::Display;
@@ -22,7 +22,7 @@ pub enum ProtocolError {
     /// error receiving oneshot response : {0}
     TokieRecvError(#[from] tokio::sync::oneshot::error::RecvError),
     /// error sending protocol event: {0}
-    TokioSendError(#[from] tokio::sync::mpsc::error::SendError<ProtocolEvent>),
+    TokioSendError(#[from] Box<tokio::sync::mpsc::error::SendError<ProtocolEvent>>),
     /// Error during network connection:`{0:?}`
     PeerConnectionError(NetworkConnectionErrorType),
     /// The ip:`{0}` address is not valid
@@ -35,8 +35,6 @@ pub enum ProtocolError {
     SerdeError(#[from] serde_json::Error),
     /// massa_hash error {0}
     MassaHashError(#[from] massa_hash::MassaHashError),
-    /// handshake error:{0:?}
-    HandshakeError(HandshakeErrorType),
     /// the network controller should not drop a node command sender before shutting down the node.
     UnexpectedNodeCommandChannelClosure,
     /// the writer of a node should not drop its event sender before sending a clean_exit message.
@@ -51,17 +49,6 @@ pub enum ProtocolError {
     NetworkError(#[from] NetworkError),
     /// container inconsistency error: {0}
     ContainerInconsistencyError(String),
-}
-
-#[derive(Debug)]
-pub enum HandshakeErrorType {
-    HandshakeIdAlreadyExistError(String),
-    HandshakeTimeoutError,
-    HandshakeInterruptionError(String),
-    HandshakeWrongMessageError,
-    HandshakeKeyError,
-    HandshakeInvalidSignatureError,
-    IncompatibleVersionError,
 }
 
 #[derive(Debug)]

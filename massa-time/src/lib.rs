@@ -1,4 +1,4 @@
-// Copyright (c) 2021 MASSA LABS <info@massa.net>
+// Copyright (c) 2022 MASSA LABS <info@massa.net>
 
 mod error;
 use chrono::{self, DateTime, NaiveDateTime, Utc};
@@ -24,17 +24,6 @@ impl fmt::Display for MassaTime {
     }
 }
 
-impl From<u64> for MassaTime {
-    /// Conversion from u64, representing timestamp in millis.
-    /// ```
-    /// # use massa_time::*;
-    /// let time : MassaTime = MassaTime::from(42);
-    /// ```
-    fn from(value: u64) -> Self {
-        MassaTime(value)
-    }
-}
-
 impl TryFrom<Duration> for MassaTime {
     type Error = TimeError;
 
@@ -54,6 +43,17 @@ impl TryFrom<Duration> for MassaTime {
                 .try_into()
                 .map_err(|_| TimeError::ConversionError)?,
         ))
+    }
+}
+
+impl From<u64> for MassaTime {
+    /// Conversion from u64, representing timestamp in millis.
+    /// ```
+    /// # use massa_time::*;
+    /// let time : MassaTime = MassaTime::from(42);
+    /// ```
+    fn from(val: u64) -> Self {
+        MassaTime(val)
     }
 }
 
@@ -94,6 +94,15 @@ impl FromStr for MassaTime {
 }
 
 impl MassaTime {
+    /// Conversion from u64, representing timestamp in millis.
+    /// ```
+    /// # use massa_time::*;
+    /// let time : MassaTime = MassaTime::from(42);
+    /// ```
+    pub const fn from(value: u64) -> Self {
+        MassaTime(value)
+    }
+
     /// Smallest time interval
     pub const EPSILON: MassaTime = MassaTime(1);
 
@@ -169,7 +178,7 @@ impl MassaTime {
     /// let res: u64 = time.to_millis();
     /// assert_eq!(res, 42);
     /// ```
-    pub fn to_millis(&self) -> u64 {
+    pub const fn to_millis(&self) -> u64 {
         self.0
     }
 
@@ -205,6 +214,7 @@ impl MassaTime {
     /// let res : MassaTime = time_1.saturating_sub(time_2);
     /// assert_eq!(res, MassaTime::from(42-7))
     /// ```
+    #[must_use]
     pub fn saturating_sub(self, t: MassaTime) -> Self {
         MassaTime(self.0.saturating_sub(t.0))
     }
@@ -216,6 +226,7 @@ impl MassaTime {
     /// let res : MassaTime = time_1.saturating_add(time_2);
     /// assert_eq!(res, MassaTime::from(42+7))
     /// ```
+    #[must_use]
     pub fn saturating_add(self, t: MassaTime) -> Self {
         MassaTime(self.0.saturating_add(t.0))
     }
@@ -280,6 +291,7 @@ impl MassaTime {
     /// let res : MassaTime = time_1.saturating_mul(7);
     /// assert_eq!(res,MassaTime::from(42*7))
     /// ```
+    #[must_use]
     pub fn saturating_mul(self, n: u64) -> MassaTime {
         MassaTime(self.0.saturating_mul(n))
     }

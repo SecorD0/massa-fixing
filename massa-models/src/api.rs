@@ -1,18 +1,20 @@
-// Copyright (c) 2021 MASSA LABS <info@massa.net>
+// Copyright (c) 2022 MASSA LABS <info@massa.net>
 
 use crate::address::AddressCycleProductionStats;
-use crate::ledger::LedgerData;
+use crate::ledger_models::LedgerData;
 use crate::node::NodeId;
+use crate::prehash::Map;
+use crate::prehash::Set;
 use crate::stats::{ConsensusStats, NetworkStats, PoolStats};
 use crate::{
-    Address, Amount, Block, BlockHashSet, BlockId, CompactConfig, Endorsement, EndorsementHashSet,
-    EndorsementId, Operation, OperationHashSet, OperationId, Slot, Version,
+    Address, Amount, Block, BlockId, CompactConfig, Endorsement, EndorsementId, Operation,
+    OperationId, Slot, Version,
 };
+use massa_hash::hash::Hash;
 use massa_time::MassaTime;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr};
-
 #[derive(Debug, Deserialize, Serialize)]
 pub struct NodeStatus {
     pub node_id: NodeId,
@@ -40,6 +42,7 @@ impl std::fmt::Display for NodeStatus {
         writeln!(f)?;
 
         writeln!(f, "Version: {}", self.version)?;
+        writeln!(f, "Config:\n{}", self.config)?;
         writeln!(f)?;
 
         writeln!(f, "Current time: {}", self.current_time.to_utc_string())?;
@@ -135,17 +138,33 @@ impl std::fmt::Display for RollsInfo {
     }
 }
 
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct SCELedgerInfo {
+    pub balance: Amount,
+    pub module: Option<Vec<u8>>,
+    pub datastore: Map<Hash, Vec<u8>>,
+}
+
+impl std::fmt::Display for SCELedgerInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "\tBalance: {}", self.balance)?;
+        // I choose not to display neither the module nor the datastore because bytes
+        Ok(())
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 pub struct AddressInfo {
     pub address: Address,
     pub thread: u8,
     pub ledger_info: LedgerInfo,
+    pub sce_ledger_info: SCELedgerInfo,
     pub rolls: RollsInfo,
     pub block_draws: HashSet<Slot>,
     pub endorsement_draws: HashSet<IndexedSlot>,
-    pub blocks_created: BlockHashSet,
-    pub involved_in_endorsements: EndorsementHashSet,
-    pub involved_in_operations: OperationHashSet,
+    pub blocks_created: Set<BlockId>,
+    pub involved_in_endorsements: Set<EndorsementId>,
+    pub involved_in_operations: Set<OperationId>,
     pub production_stats: Vec<AddressCycleProductionStats>,
 }
 
@@ -153,7 +172,8 @@ impl std::fmt::Display for AddressInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "Address: {}", self.address)?;
         writeln!(f, "Thread: {}", self.thread)?;
-        writeln!(f, "Balance:\n{}", self.ledger_info)?;
+        writeln!(f, "Sequential balance:\n{}", self.ledger_info)?;
+        writeln!(f, "Parallel balance:\n{}", self.sce_ledger_info)?;
         writeln!(f, "Rolls:\n{}", self.rolls)?;
         writeln!(
             f,
@@ -219,6 +239,7 @@ impl AddressInfo {
             thread: self.thread,
             balance: self.ledger_info,
             rolls: self.rolls,
+            sce_balance: self.sce_ledger_info.clone(),
         }
     }
 }
@@ -242,13 +263,15 @@ pub struct CompactAddressInfo {
     pub thread: u8,
     pub balance: LedgerInfo,
     pub rolls: RollsInfo,
+    pub sce_balance: SCELedgerInfo,
 }
 
 impl std::fmt::Display for CompactAddressInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "Address: {}", self.address)?;
         writeln!(f, "Thread: {}", self.thread)?;
-        writeln!(f, "Balance:\n{}", self.balance)?;
+        writeln!(f, "Sequential balance:\n{}", self.sce_balance)?;
+        writeln!(f, "Parallel balance:\n{}", self.balance)?;
         writeln!(f, "Rolls:\n{}", self.rolls)?;
         Ok(())
     }
@@ -365,4 +388,21 @@ pub struct APISettings {
     pub bind_private: SocketAddr,
     pub bind_public: SocketAddr,
     pub max_arguments: u64,
+}
+
+#[derive(Debug, Deserialize, Clone, Serialize)]
+pub struct EventFilter {
+    pub start: Option<Slot>,
+    pub end: Option<Slot>,
+    pub emitter_address: Option<Address>,
+    pub original_caller_address: Option<Address>,
+    pub original_operation_id: Option<OperationId>,
+}
+
+#[derive(Debug, Deserialize, Clone, Serialize)]
+pub struct ReadOnlyExecution {
+    pub max_gas: u64,
+    pub simulated_gas_price: Amount,
+    pub bytecode: Vec<u8>,
+    pub address: Option<Address>,
 }

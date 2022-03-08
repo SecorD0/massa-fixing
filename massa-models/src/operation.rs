@@ -1,9 +1,8 @@
-// Copyright (c) 2021 MASSA LABS <info@massa.net>
+// Copyright (c) 2022 MASSA LABS <info@massa.net>
 
-use crate::settings::{ADDRESS_SIZE_BYTES, OPERATION_ID_SIZE_BYTES};
+use crate::constants::{ADDRESS_SIZE_BYTES, OPERATION_ID_SIZE_BYTES};
+use crate::prehash::{PreHashed, Set};
 use crate::{
-    address::AddressHashSet,
-    hhasher::{HHashMap, HHashSet, PreHashed},
     serialization::{
         array_from_slice, DeserializeCompact, DeserializeVarInt, SerializeCompact, SerializeVarInt,
     },
@@ -19,22 +18,59 @@ use std::convert::TryInto;
 use std::fmt::Formatter;
 use std::{ops::RangeInclusive, str::FromStr};
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+const OPERATION_ID_STRING_PREFIX: &str = "OPE";
+#[derive(Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
 pub struct OperationId(Hash);
-
-pub type OperationHashMap<T> = HHashMap<OperationId, T>;
-pub type OperationHashSet = HHashSet<OperationId>;
 
 impl std::fmt::Display for OperationId {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}", self.0.to_bs58_check())
+        if cfg!(feature = "hash-prefix") {
+            write!(
+                f,
+                "{}-{}",
+                OPERATION_ID_STRING_PREFIX,
+                self.0.to_bs58_check()
+            )
+        } else {
+            write!(f, "{}", self.0.to_bs58_check())
+        }
+    }
+}
+
+impl std::fmt::Debug for OperationId {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        if cfg!(feature = "hash-prefix") {
+            write!(
+                f,
+                "{}-{}",
+                OPERATION_ID_STRING_PREFIX,
+                self.0.to_bs58_check()
+            )
+        } else {
+            write!(f, "{}", self.0.to_bs58_check())
+        }
     }
 }
 
 impl FromStr for OperationId {
     type Err = ModelsError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(OperationId(Hash::from_str(s)?))
+        if cfg!(feature = "hash-prefix") {
+            let v: Vec<_> = s.split('-').collect();
+            if v.len() != 2 {
+                // assume there is no prefix
+                Ok(OperationId(Hash::from_str(s)?))
+            } else if v[0] != OPERATION_ID_STRING_PREFIX {
+                Err(ModelsError::WrongPrefix(
+                    OPERATION_ID_STRING_PREFIX.to_string(),
+                    v[0].to_string(),
+                ))
+            } else {
+                Ok(OperationId(Hash::from_str(v[1])?))
+            }
+        } else {
+            Ok(OperationId(Hash::from_str(s)?))
+        }
     }
 }
 
@@ -54,6 +90,7 @@ impl OperationId {
             Hash::from_bytes(data).map_err(|_| ModelsError::HashError)?,
         ))
     }
+
     pub fn from_bs58_check(data: &str) -> Result<OperationId, ModelsError> {
         Ok(OperationId(
             Hash::from_bs58_check(data).map_err(|_| ModelsError::HashError)?,
@@ -415,8 +452,8 @@ impl Operation {
         start..=self.content.expire_period
     }
 
-    pub fn get_ledger_involved_addresses(&self) -> Result<AddressHashSet, ModelsError> {
-        let mut res = AddressHashSet::default();
+    pub fn get_ledger_involved_addresses(&self) -> Result<Set<Address>, ModelsError> {
+        let mut res = Set::<Address>::default();
         let emitter_address = Address::from_public_key(&self.content.sender_public_key);
         res.insert(emitter_address);
         match self.content.op {
@@ -432,8 +469,8 @@ impl Operation {
         Ok(res)
     }
 
-    pub fn get_roll_involved_addresses(&self) -> Result<AddressHashSet, ModelsError> {
-        let mut res = AddressHashSet::default();
+    pub fn get_roll_involved_addresses(&self) -> Result<Set<Address>, ModelsError> {
+        let mut res = Set::<Address>::default();
         match self.content.op {
             OperationType::Transaction { .. } => {}
             OperationType::RollBuy { .. } => {

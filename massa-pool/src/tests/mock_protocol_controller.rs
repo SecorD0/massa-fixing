@@ -1,13 +1,12 @@
-// Copyright (c) 2021 MASSA LABS <info@massa.net>
+// Copyright (c) 2022 MASSA LABS <info@massa.net>
 
-use massa_models::{Endorsement, EndorsementHashMap, Operation, OperationHashMap};
+use massa_models::prehash::Map;
+use massa_models::{constants::CHANNEL_SIZE, Endorsement, EndorsementId, Operation, OperationId};
 use massa_protocol_exports::{
     ProtocolCommand, ProtocolCommandSender, ProtocolPoolEvent, ProtocolPoolEventReceiver,
 };
 use massa_time::MassaTime;
 use tokio::{sync::mpsc, time::sleep};
-
-const CHANNEL_SIZE: usize = 256;
 
 pub struct MockProtocolController {
     protocol_command_rx: mpsc::Receiver<ProtocolCommand>,
@@ -46,7 +45,7 @@ impl MockProtocolController {
         }
     }
 
-    pub async fn received_operations(&mut self, operations: OperationHashMap<Operation>) {
+    pub async fn received_operations(&mut self, operations: Map<OperationId, Operation>) {
         self.pool_event_tx
             .send(ProtocolPoolEvent::ReceivedOperations {
                 operations,
@@ -56,7 +55,7 @@ impl MockProtocolController {
             .expect("could not send protocol pool event");
     }
 
-    pub async fn received_endorsements(&mut self, endorsements: EndorsementHashMap<Endorsement>) {
+    pub async fn received_endorsements(&mut self, endorsements: Map<EndorsementId, Endorsement>) {
         self.pool_event_tx
             .send(ProtocolPoolEvent::ReceivedEndorsements {
                 endorsements,

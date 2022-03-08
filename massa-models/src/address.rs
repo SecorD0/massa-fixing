@@ -1,9 +1,11 @@
-// Copyright (c) 2021 MASSA LABS <info@massa.net>
+// Copyright (c) 2022 MASSA LABS <info@massa.net>
 
-use crate::api::{LedgerInfo, RollsInfo};
-use crate::hhasher::{HHashMap, HHashSet, PreHashed};
-use crate::settings::ADDRESS_SIZE_BYTES;
+use crate::prehash::{PreHashed, Set};
 use crate::ModelsError;
+use crate::{
+    api::{LedgerInfo, RollsInfo},
+    constants::ADDRESS_SIZE_BYTES,
+};
 use massa_hash::hash::Hash;
 use massa_signature::PublicKey;
 use serde::{Deserialize, Serialize};
@@ -11,27 +13,44 @@ use std::str::FromStr;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct Address(pub Hash);
-
-pub type AddressHashMap<T> = HHashMap<Address, T>;
-pub type AddressHashSet = HHashSet<Address>;
+const ADDRESS_STRING_PREFIX: &str = "ADR";
 
 impl std::fmt::Display for Address {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}", self.0.to_bs58_check())
+        if cfg!(feature = "hash-prefix") {
+            write!(f, "{}-{}", ADDRESS_STRING_PREFIX, self.0.to_bs58_check())
+        } else {
+            write!(f, "{}", self.0.to_bs58_check())
+        }
     }
 }
 
 impl FromStr for Address {
     type Err = ModelsError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(Address(Hash::from_str(s)?))
+        if cfg!(feature = "hash-prefix") {
+            let v: Vec<_> = s.split('-').collect();
+            if v.len() != 2 {
+                // assume there is no prefix
+                Ok(Address(Hash::from_str(s)?))
+            } else if v[0] != ADDRESS_STRING_PREFIX {
+                Err(ModelsError::WrongPrefix(
+                    ADDRESS_STRING_PREFIX.to_string(),
+                    v[0].to_string(),
+                ))
+            } else {
+                Ok(Address(Hash::from_str(v[1])?))
+            }
+        } else {
+            Ok(Address(Hash::from_str(s)?))
+        }
     }
 }
 
 impl PreHashed for Address {}
 
 impl Address {
-    /// Gets the associated tread. Depends on the thread_count
+    /// Gets the associated thread. Depends on the thread_count
     pub fn get_thread(&self, thread_count: u8) -> u8 {
         (self.to_bytes()[0])
             .checked_shr(8 - thread_count.trailing_zeros())
@@ -140,7 +159,7 @@ impl Address {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Addresses {
-    pub addrs: AddressHashSet,
+    pub addrs: Set<Address>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
