@@ -19,6 +19,7 @@ tokio = { version = "1.15", features = ["full"] }
 num = { version = "0.4", features = ["serde"] }
 directories = "4.0"
 config = "0.11"
+tracing = "0.1"
 
 # custom modules
 massa_hash = { path = "../massa-hash" }
