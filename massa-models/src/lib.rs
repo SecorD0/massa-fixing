@@ -1,7 +1,7 @@
 // Copyright (c) 2022 MASSA LABS <info@massa.net>
 
-//#![feature(backtrace)]
-//#![feature(backtrace_frames)]
+#![feature(backtrace)]
+#![feature(backtrace_frames)]
 
 #[macro_use]
 extern crate lazy_static;

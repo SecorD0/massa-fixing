@@ -20,7 +20,7 @@ use std::str::FromStr;
 use std::sync::Mutex;
 use std::sync::atomic::AtomicI64;
 use tracing::debug;
-//use std::backtrace::{Backtrace, BacktraceFrame};
+use std::backtrace::{Backtrace, BacktraceFrame};
 const BLOCK_ID_STRING_PREFIX: &str = "BLO";
 
 #[derive(Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
@@ -117,12 +117,10 @@ pub struct Block {
 
 impl Clone for Block {
     fn clone(&self) -> Self {
-        //debug!("in clone");
-        //let mut lock = BACKTRACES.lock().unwrap();
-        //debug!("le lock");
-        //let entry = lock.entry(Backtrace::force_capture().to_string()).or_insert(0);
-        //*entry += 1;
-        //debug!("Backtraces = {:?}", lock);
+        let mut lock = BACKTRACES.lock().unwrap();
+        let entry = lock.entry(Backtrace::force_capture().to_string()).or_insert(0);
+        *entry += 1;
+        debug!("Backtraces = {:?}", lock);
         debug!("Clone block count = {}", CLONE_COUNT.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1);
         Self {
             header: self.header.clone(),
