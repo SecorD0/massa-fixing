@@ -197,20 +197,6 @@ async fn test_end_cycle_batch_final() {
                 println!("=======");
             }
 
-            println!("le current la: {}", current_period);
-
-            let hash_9_0 = create_and_test_block(
-                &mut protocol_controller,
-                &cfg,
-                Slot::new(current_period, 0),
-                parents.clone(),
-                true,
-                false,
-                priv_1,
-            )
-            .await;
-            parents[0] = hash_9_0;
-            current_period += 1;
             //end test
 
             let rs_a2_r1 = create_roll_sell(priv_1, 1, 90, 0);
