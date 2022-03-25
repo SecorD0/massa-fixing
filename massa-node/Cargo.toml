@@ -52,3 +52,5 @@ sandbox = ["massa_consensus_exports/sandbox", "massa_consensus_worker/sandbox", 
 [build]
 rustflags = ["--cfg", "tokio_unstable"]
 
+[profile.release]
+debug = true
