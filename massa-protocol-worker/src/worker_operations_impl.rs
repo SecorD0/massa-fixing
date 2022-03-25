@@ -85,9 +85,9 @@ impl ProtocolWorker {
         op_batch: OperationIds,
         node_id: NodeId,
     ) -> Result<(), ProtocolError> {
-        if self.limitation_batches_by_node(node_id).await {
-            return Ok(()); // return ok if we just limit (and ban) the current node
-        }
+        //if self.limitation_batches_by_node(node_id).await {
+        //    return Ok(()); // return ok if we just limit (and ban) the current node
+        //}
         let mut ask_set =
             OperationIds::with_capacity_and_hasher(op_batch.len(), BuildMap::default());
         let mut future_set =

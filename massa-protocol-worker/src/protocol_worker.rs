@@ -20,7 +20,7 @@ use massa_protocol_exports::{
     ProtocolSettings,
 };
 use massa_time::TimeError;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 use tokio::{
     sync::mpsc,
@@ -150,8 +150,8 @@ pub struct ProtocolWorker {
     pub(crate) asked_operations: HashMap<OperationId, (Instant, Vec<NodeId>)>,
     /// Buffer for operations that we want later
     pub(crate) op_batch_buffer: OperationBatchBuffer,
-    /// Buffer for operations that we want later
-    pub(crate) op_ids_to_send: VecDeque<OperationId>,
+    ///// Buffer for operations that we want later
+    //pub(crate) op_ids_to_send: VecDeque<OperationId>,
 }
 
 pub struct ProtocolWorkerChannels {
@@ -207,7 +207,7 @@ impl ProtocolWorker {
             op_batch_buffer: OperationBatchBuffer::with_capacity(
                 protocol_settings.operation_batch_buffer_capacity,
             ),
-            op_ids_to_send: VecDeque::new(),
+            //op_ids_to_send: VecDeque::new(),
         }
     }
 
@@ -268,13 +268,13 @@ impl ProtocolWorker {
             self.protocol_settings.asked_operations_pruning_period,
         ));
         tokio::pin!(operation_prune_timer);
-        let block_ask_timer = sleep(self.protocol_settings.asked_ops_lifetime.into());
+        let block_ask_timer = sleep(self.protocol_settings.ask_block_timeout.into());
         tokio::pin!(block_ask_timer);
         let operation_batch_proc_period_timer =
             sleep(self.protocol_settings.operation_batch_proc_period.into());
         tokio::pin!(operation_batch_proc_period_timer);
-        let propagate_operations_timer = sleep(self.protocol_settings.get_batch_send_period());
-        tokio::pin!(propagate_operations_timer);
+        //let propagate_operations_timer = sleep(self.protocol_settings.get_batch_send_period());
+        //tokio::pin!(propagate_operations_timer);
         loop {
             massa_trace!("protocol.protocol_worker.run_loop.begin", {});
             /*
@@ -327,10 +327,10 @@ impl ProtocolWorker {
                 }
 
                 // Propagate the operation ids regulary
-                _ = &mut propagate_operations_timer => {
-                    massa_trace!("protocol.protocol_worker.run_loop.propagate_operations_timer", { });
-                    self.send_operation_ids_batch(&mut propagate_operations_timer).await?;
-                }
+                // _ = &mut propagate_operations_timer => {
+                //     massa_trace!("protocol.protocol_worker.run_loop.propagate_operations_timer", { });
+                //     self.send_operation_ids_batch(&mut propagate_operations_timer).await?;
+                // }
             }
             massa_trace!("protocol.protocol_worker.run_loop.end", {});
         }
@@ -511,7 +511,24 @@ impl ProtocolWorker {
                     "protocol.protocol_worker.process_command.propagate_operations.begin",
                     { "operation_ids": operation_ids }
                 );
-                self.op_ids_to_send.extend(operation_ids.iter());
+                //self.op_ids_to_send.extend(operation_ids.iter());
+                self.checked_operations.extend(operation_ids.clone());
+                for (node, node_info) in self.active_nodes.iter_mut() {
+                    let new_ops: OperationIds = operation_ids
+                        .iter()
+                        .filter(|id| !node_info.knows_op(*id))
+                        .copied()
+                        .collect();
+                    node_info.insert_known_ops(
+                        new_ops.iter().cloned().collect(),
+                        self.protocol_settings.max_known_ops_size,
+                    );
+                    if !new_ops.is_empty() {
+                        self.network_command_sender
+                            .send_operations_batch(*node, new_ops)
+                            .await?;
+                    }
+                }
             }
             ProtocolCommand::PropagateEndorsements(endorsements) => {
                 massa_trace!(
