@@ -9,6 +9,7 @@ use super::{
 use massa_logging::massa_trace;
 use massa_models::{
     constants::CHANNEL_SIZE,
+    operation::OperationIds,
     prehash::{Map, Set},
     stats::PoolStats,
     Address, BlockId, EndorsementId, OperationId, OperationSearchResult, SignedEndorsement,
@@ -144,7 +145,7 @@ impl PoolCommandSender {
     pub async fn send_get_operation_batch(
         &mut self,
         target_slot: Slot,
-        exclude: Set<OperationId>,
+        exclude: OperationIds,
         batch_size: usize,
         max_size: u64,
     ) -> Result<Vec<(OperationId, SignedOperation, u64)>, PoolError> {
@@ -205,7 +206,7 @@ impl PoolCommandSender {
 
     pub async fn get_operations(
         &mut self,
-        operation_ids: Set<OperationId>,
+        operation_ids: OperationIds,
     ) -> Result<Map<OperationId, SignedOperation>, PoolError> {
         massa_trace!("pool.command_sender.get_operations", {
             "operation_ids": operation_ids

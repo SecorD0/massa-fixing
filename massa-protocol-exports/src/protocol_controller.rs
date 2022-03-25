@@ -54,7 +54,7 @@ pub enum ProtocolPoolEvent {
 }
 
 type BlocksResults =
-    Map<BlockId, Option<(Block, Option<Set<OperationId>>, Option<Vec<EndorsementId>>)>>;
+    Map<BlockId, Option<(Block, Option<OperationIds>, Option<Vec<EndorsementId>>)>>;
 
 /// Commands that protocol worker can process
 #[derive(Debug, Serialize)]
@@ -98,7 +98,7 @@ impl ProtocolCommandSender {
         &mut self,
         block_id: BlockId,
         block: Block,
-        operation_ids: Set<OperationId>,
+        operation_ids: OperationIds,
         endorsement_ids: Vec<EndorsementId>,
     ) -> Result<(), ProtocolError> {
         massa_trace!("protocol.command_sender.integrated_block", { "block_id": block_id, "block": block });

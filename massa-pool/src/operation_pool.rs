@@ -1,6 +1,7 @@
 // Copyright (c) 2022 MASSA LABS <info@massa.net>
 
 use crate::{settings::PoolConfig, PoolError};
+use massa_models::operation::OperationIds;
 use massa_models::prehash::{Map, Set};
 use massa_models::{
     Address, OperationId, OperationSearchResult, OperationSearchResultStatus, OperationType,
@@ -283,7 +284,7 @@ impl OperationPool {
     pub fn get_operation_batch(
         &mut self,
         block_slot: Slot,
-        exclude: Set<OperationId>,
+        exclude: OperationIds,
         batch_size: usize,
         max_size: u64,
     ) -> Result<Vec<(OperationId, SignedOperation, u64)>, PoolError> {
@@ -318,7 +319,7 @@ impl OperationPool {
 
     pub fn get_operations(
         &self,
-        operation_ids: &Set<OperationId>,
+        operation_ids: &OperationIds,
     ) -> Map<OperationId, SignedOperation> {
         operation_ids
             .iter()

@@ -11,7 +11,6 @@ use crate::{
 };
 use massa_hash::hash::Hash;
 use massa_logging::massa_trace;
-use massa_models::prehash::{BuildMap, Map, Set};
 use massa_models::{
     active_block::ActiveBlock,
     api::EndorsementInfo,
@@ -23,6 +22,10 @@ use massa_models::{ledger_models::LedgerChange, signed::Signed};
 use massa_models::{
     ledger_models::LedgerChanges, Address, Block, BlockHeader, BlockId, EndorsementId, OperationId,
     OperationSearchResult, OperationSearchResultBlockStatus, OperationSearchResultStatus, Slot,
+};
+use massa_models::{
+    operation::OperationIds,
+    prehash::{BuildMap, Map, Set},
 };
 use massa_proof_of_stake_exports::{
     error::ProofOfStakeError, OperationRollInterface, ProofOfStake,
@@ -298,7 +301,7 @@ pub struct BlockGraph {
     /// All the cliques
     max_cliques: Vec<Clique>,
     /// Blocks that need to be propagated
-    to_propagate: Map<BlockId, (Block, Set<OperationId>, Vec<EndorsementId>)>,
+    to_propagate: Map<BlockId, (Block, OperationIds, Vec<EndorsementId>)>,
     /// List of block ids we think are attack attempts
     attack_attempts: Vec<BlockId>,
     /// Newly final blocks
@@ -1194,7 +1197,7 @@ impl BlockGraph {
     /// Retrieves operations from operation Ids
     pub fn get_operations(
         &self,
-        operation_ids: &Set<OperationId>,
+        operation_ids: &OperationIds,
     ) -> Map<OperationId, OperationSearchResult> {
         let mut res: Map<OperationId, OperationSearchResult> = Default::default();
         // for each active block
@@ -3591,7 +3594,7 @@ impl BlockGraph {
     /// Must be called by the consensus worker within `block_db_changed`.
     pub fn get_blocks_to_propagate(
         &mut self,
-    ) -> Map<BlockId, (Block, Set<OperationId>, Vec<EndorsementId>)> {
+    ) -> Map<BlockId, (Block, OperationIds, Vec<EndorsementId>)> {
         mem::take(&mut self.to_propagate)
     }
 

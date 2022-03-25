@@ -48,10 +48,8 @@ impl ProtocolWorker {
         op_batch: OperationIds,
         node_id: NodeId,
     ) -> Result<(), ProtocolError> {
-        let mut ask_set =
-            OperationIds::with_capacity_and_hasher(op_batch.len(), BuildMap::default());
-        let mut future_set =
-            OperationIds::with_capacity_and_hasher(op_batch.len(), BuildMap::default());
+        let mut ask_set = OperationIds::with_capacity(op_batch.len());
+        let mut future_set = OperationIds::with_capacity(op_batch.len());
         // exactitude isn't important, we want to have a now for that function call
         let now = Instant::now();
         for op_id in op_batch {
@@ -76,14 +74,14 @@ impl ProtocolWorker {
                         .checked_sub(self.protocol_settings.operation_batch_proc_period.into())
                         .ok_or(TimeError::TimeOverflowError)?
                 {
-                    ask_set.insert(op_id);
+                    ask_set.push(op_id);
                     wish.0 = now;
                     wish.1.push(node_id);
                 } else {
-                    future_set.insert(op_id);
+                    future_set.push(op_id);
                 }
             } else {
-                ask_set.insert(op_id);
+                ask_set.push(op_id);
                 self.asked_operations.insert(op_id, (now, vec![node_id]));
             }
         } // EndOf for op_id in op_batch:
@@ -185,14 +183,14 @@ impl ProtocolWorker {
         op_ids: OperationIds,
     ) -> Result<(), ProtocolError> {
         if let Some(node_info) = self.active_nodes.get_mut(&node_id) {
-            for op_ids in op_ids.iter() {
-                node_info.known_operations.remove(op_ids);
-            }
+            node_info
+                .known_operations
+                .drain_filter(|op_id| op_ids.contains(op_id));
         }
         let mut operation_ids = OperationIds::default();
         for op_id in op_ids.iter() {
-            if self.checked_operations.get(op_id).is_some() {
-                operation_ids.insert(*op_id);
+            if self.checked_operations.contains(op_id) {
+                operation_ids.push(*op_id);
             }
         }
         self.send_protocol_pool_event(ProtocolPoolEvent::GetOperations((node_id, operation_ids)))

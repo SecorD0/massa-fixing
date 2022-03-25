@@ -483,7 +483,7 @@ impl Operation {
 }
 
 /// Set of operation ids
-pub type OperationIds = Set<OperationId>;
+pub type OperationIds = Vec<OperationId>;
 /// Set of self containing signed operations.
 pub type Operations = Vec<SignedOperation>;
 

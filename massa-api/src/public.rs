@@ -11,6 +11,7 @@ use massa_execution_exports::{
 use massa_graph::{DiscardReason, ExportBlockStatus};
 use massa_models::api::SCELedgerInfo;
 use massa_models::execution::ReadOnlyResult;
+use massa_models::operation::OperationIds;
 use massa_models::SignedOperation;
 
 use massa_models::{
@@ -234,7 +235,7 @@ impl Endpoints for API<Public> {
                 return Err(ApiError::TooManyArguments("too many arguments".into()));
             }
 
-            let operation_ids: Set<OperationId> = ops.iter().cloned().collect();
+            let operation_ids: OperationIds = ops.iter().cloned().collect();
 
             // simultaneously ask pool and consensus
             let (pool_res, consensus_res) = tokio::join!(

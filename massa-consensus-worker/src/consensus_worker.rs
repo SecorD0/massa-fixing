@@ -8,7 +8,6 @@ use massa_consensus_exports::{
 };
 use massa_graph::{BlockGraph, BlockGraphExport};
 use massa_hash::hash::Hash;
-use massa_models::prehash::{BuildMap, Map, Set};
 use massa_models::timeslots::{get_block_slot_timestamp, get_latest_block_slot_at_timestamp};
 use massa_models::{address::AddressCycleProductionStats, stats::ConsensusStats, OperationId};
 use massa_models::{address::AddressState, signed::Signed};
@@ -17,6 +16,10 @@ use massa_models::{
     SignedEndorsement,
 };
 use massa_models::{ledger_models::LedgerData, SignedOperation};
+use massa_models::{
+    operation::OperationIds,
+    prehash::{BuildMap, Map, Set},
+};
 use massa_models::{
     Address, Block, BlockHeader, BlockId, Endorsement, EndorsementId, OperationSearchResult,
     OperationType, SerializeCompact, Slot,
@@ -477,7 +480,7 @@ impl ConsensusWorker {
         let mut remaining_operation_count = self.cfg.max_operations_per_block as usize;
 
         // exclude operations that were used in block ancestry
-        let mut exclude_operations = Set::<OperationId>::default();
+        let mut exclude_operations = OperationIds::default();
         let mut ancestor_id = block.header.content.parents[cur_slot.thread as usize];
         let stop_period = cur_slot
             .period
@@ -538,7 +541,7 @@ impl ConsensusWorker {
 
             for (op_id, op, op_size) in operation_batch.into_iter() {
                 // exclude operation from future batches
-                exclude_operations.insert(op_id);
+                exclude_operations.push(op_id);
 
                 // check that the operation fits in size
                 if op_size > remaining_block_space {
@@ -1083,7 +1086,7 @@ impl ConsensusWorker {
 
     async fn get_operations(
         &mut self,
-        operation_ids: &Set<OperationId>,
+        operation_ids: &OperationIds,
     ) -> Map<OperationId, OperationSearchResult> {
         self.block_db.get_operations(operation_ids)
     }

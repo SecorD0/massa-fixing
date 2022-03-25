@@ -220,12 +220,11 @@ fn deserialize_operation_ids(
     let (length, delta) = u32::from_varint_bytes_bounded(&buffer[c..], max_operations_per_message)?;
     c += delta;
     // hash list
-    let mut list: OperationIds =
-        Set::with_capacity_and_hasher(length as usize, BuildMap::default());
+    let mut list: OperationIds = Vec::with_capacity(length as usize);
     for _ in 0..length {
         let b_id = OperationId::from_bytes(&array_from_slice(&buffer[c..])?)?;
         c += OPERATION_ID_SIZE_BYTES;
-        list.insert(b_id);
+        list.push(b_id);
     }
     *cursor = c;
     Ok(list)

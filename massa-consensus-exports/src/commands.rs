@@ -2,6 +2,7 @@
 
 //! Contains definitions of commands used by the controller
 use massa_graph::{BlockGraphExport, BootstrapableGraph, ExportBlockStatus, Status};
+use massa_models::operation::OperationIds;
 use massa_models::{address::AddressState, api::EndorsementInfo, EndorsementId, OperationId};
 use massa_models::{clique::Clique, stats::ConsensusStats};
 use massa_models::{
@@ -54,7 +55,7 @@ pub enum ConsensusCommand {
         response_tx: oneshot::Sender<Map<OperationId, OperationSearchResult>>,
     },
     GetOperations {
-        operation_ids: Set<OperationId>,
+        operation_ids: OperationIds,
         response_tx: oneshot::Sender<Map<OperationId, OperationSearchResult>>,
     },
     GetStats(oneshot::Sender<ConsensusStats>),

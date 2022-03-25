@@ -3,6 +3,7 @@
 use super::error::PoolError;
 use crate::operation_pool::OperationPool;
 use crate::{endorsement_pool::EndorsementPool, settings::PoolConfig};
+use massa_models::operation::OperationIds;
 use massa_models::prehash::{Map, Set};
 use massa_models::stats::PoolStats;
 use massa_models::{
@@ -21,13 +22,13 @@ pub enum PoolCommand {
     UpdateLatestFinalPeriods(Vec<u64>),
     GetOperationBatch {
         target_slot: Slot,
-        exclude: Set<OperationId>,
+        exclude: OperationIds,
         batch_size: usize,
         max_size: u64,
         response_tx: oneshot::Sender<Vec<(OperationId, SignedOperation, u64)>>,
     },
     GetOperations {
-        operation_ids: Set<OperationId>,
+        operation_ids: OperationIds,
         response_tx: oneshot::Sender<Map<OperationId, SignedOperation>>,
     },
     GetRecentOperations {

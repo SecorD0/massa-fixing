@@ -55,10 +55,7 @@ impl NodeInfo {
             ),
             asked_blocks: Default::default(),
             connection_instant: Instant::now(),
-            known_operations: Set::<OperationId>::with_capacity_and_hasher(
-                pool_settings.max_known_ops_size,
-                BuildMap::default(),
-            ),
+            known_operations: OperationIds::default(),
             known_operations_queue: VecDeque::with_capacity(pool_settings.max_known_ops_size),
             known_endorsements: Set::<EndorsementId>::with_capacity_and_hasher(
                 pool_settings.max_known_endorsements_size,
@@ -133,13 +130,15 @@ impl NodeInfo {
         self.known_endorsements.contains(endorsement_id)
     }
 
-    pub fn insert_known_ops(&mut self, ops: Set<OperationId>, max_ops_nb: usize) {
+    pub fn insert_known_ops(&mut self, ops: OperationIds, max_ops_nb: usize) {
         for operation_id in ops.into_iter() {
-            if self.known_operations.insert(operation_id) {
+            if !self.known_operations.contains(&operation_id) {
+                self.known_operations.push(operation_id);
                 self.known_operations_queue.push_front(operation_id);
                 if self.known_operations_queue.len() > max_ops_nb {
                     if let Some(op_id) = self.known_operations_queue.pop_back() {
-                        self.known_operations.remove(&op_id);
+                        self.known_operations
+                            .drain_filter(|&mut operation_id| operation_id == op_id);
                     }
                 }
             }

@@ -1097,7 +1097,8 @@ impl ProtocolWorker {
             }
 
             // Check operation signature only if not already checked.
-            if self.checked_operations.insert(operation_id) {
+            if !self.checked_operations.contains(&operation_id) {
+                self.checked_operations.push(operation_id);
                 // check signature
                 operation.verify_signature(&operation.content.sender_public_key)?;
                 new_operations.insert(operation_id, operation);

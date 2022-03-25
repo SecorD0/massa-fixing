@@ -1,5 +1,6 @@
 // Copyright (c) 2022 MASSA LABS <info@massa.net>
 use massa_graph::{BlockGraphExport, BootstrapableGraph, ExportBlockStatus, Status};
+use massa_models::operation::OperationIds;
 use massa_models::{address::AddressState, api::EndorsementInfo, EndorsementId, OperationId};
 use massa_models::{clique::Clique, stats::ConsensusStats};
 use massa_models::{
@@ -215,7 +216,7 @@ impl ConsensusCommandSender {
 
     pub async fn get_operations(
         &self,
-        operation_ids: Set<OperationId>,
+        operation_ids: OperationIds,
     ) -> Result<Map<OperationId, OperationSearchResult>, ConsensusError> {
         let (response_tx, response_rx) = oneshot::channel();
         massa_trace!("consensus.consensus_controller.get_operatiosn", {
