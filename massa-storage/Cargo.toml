@@ -5,6 +5,7 @@ authors = ["Massa Labs <info@massa.net>"]
 edition = "2021"
 
 [dependencies]
+flurry = "0.4"
 parking_lot = "0.12"
 massa_models = { path = "../massa-models" }
 
