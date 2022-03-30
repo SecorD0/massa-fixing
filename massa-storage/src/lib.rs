@@ -1,7 +1,7 @@
-use massa_models::prehash::Map;
+use dashmap::{mapref::entry::Entry, DashMap};
+use massa_models::prehash::BuildMap;
 use massa_models::{Block, BlockId};
 use parking_lot::RwLock;
-use std::collections::hash_map::Entry;
 use std::sync::Arc;
 
 #[derive(Debug)]
@@ -18,14 +18,13 @@ pub struct StoredBlock {
 /// A storage of block, shared by various components.
 #[derive(Clone, Default)]
 pub struct Storage {
-    blocks: Arc<RwLock<Map<BlockId, Arc<RwLock<StoredBlock>>>>>,
+    blocks: Arc<DashMap<BlockId, Arc<RwLock<StoredBlock>>, BuildMap<BlockId>>>,
 }
 
 impl Storage {
     /// Store a block, along with it's serialized representation.
     pub fn store_block(&self, block_id: BlockId, block: Block, serialized: Vec<u8>) {
-        let mut blocks = self.blocks.write();
-        match blocks.entry(block_id) {
+        match self.blocks.entry(block_id) {
             Entry::Occupied(_) => {}
             Entry::Vacant(entry) => {
                 let stored_block = StoredBlock {
@@ -41,15 +40,13 @@ impl Storage {
 
     /// Get a (mutable) reference to the stored block.
     pub fn retrieve_block(&self, block_id: &BlockId) -> Option<Arc<RwLock<StoredBlock>>> {
-        let blocks = self.blocks.read();
-        blocks.get(block_id).map(Arc::clone)
+        self.blocks.get(block_id).map(|v| Arc::clone(v.value()))
     }
 
     /// Remove a list of blocks from storage.
     pub fn remove_blocks(&self, block_ids: &[BlockId]) {
-        let mut blocks = self.blocks.write();
         for id in block_ids {
-            blocks.remove(id);
+            self.blocks.remove(id);
         }
     }
 }

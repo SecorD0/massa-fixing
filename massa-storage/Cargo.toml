@@ -5,7 +5,9 @@ authors = ["Massa Labs <info@massa.net>"]
 edition = "2021"
 
 [dependencies]
+dashmap = "5.2"
 parking_lot = "0.12"
+# custom modules
 massa_models = { path = "../massa-models" }
 
 [features]
