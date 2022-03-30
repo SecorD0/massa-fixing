@@ -24,29 +24,29 @@ pub struct Storage {
 impl Storage {
     /// Store a block, along with it's serialized representation.
     pub fn store_block(&self, block_id: BlockId, block: Block, serialized: Vec<u8>) {
-        let blocks = self.blocks.pin();
-        if blocks.contains_key(&block_id) {
+        let guard = self.blocks.guard();
+        if self.blocks.contains_key(&block_id, &guard) {
             let stored_block = StoredBlock {
                 block,
                 serialized,
                 serialized_header: None,
             };
             let to_store = Arc::new(RwLock::new(stored_block));
-            blocks.insert(block_id, to_store);
+            self.blocks.insert(block_id, to_store, &guard);
         }
     }
 
     /// Get a (mutable) reference to the stored block.
     pub fn retrieve_block(&self, block_id: &BlockId) -> Option<Arc<RwLock<StoredBlock>>> {
-        let blocks = self.blocks.pin();
-        blocks.get(block_id).map(Arc::clone)
+        let guard = self.blocks.guard();
+        self.blocks.get(block_id, &guard).map(Arc::clone)
     }
 
     /// Remove a list of blocks from storage.
     pub fn remove_blocks(&self, block_ids: &[BlockId]) {
-        let blocks = self.blocks.pin();
+        let guard = self.blocks.guard();
         for id in block_ids {
-            blocks.remove(id);
+            self.blocks.remove(id, &guard);
         }
     }
 }
