@@ -25,7 +25,7 @@ impl Storage {
     /// Store a block, along with it's serialized representation.
     pub fn store_block(&self, block_id: BlockId, block: Block, serialized: Vec<u8>) {
         let guard = self.blocks.guard();
-        if self.blocks.contains_key(&block_id, &guard) {
+        if !self.blocks.contains_key(&block_id, &guard) {
             let stored_block = StoredBlock {
                 block,
                 serialized,
