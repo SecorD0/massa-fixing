@@ -257,6 +257,8 @@ impl ExecutionThread {
 
         // check if the final slot is cached at the front of the speculative execution history
         if let Some(exec_out) = exec_state.pop_first_execution_result() {
+            println!("SLOT: {} | ID: {:?}", exec_out.slot, exec_out.block_id);
+            println!("SLOT: {} | ID: {:?}", slot,  exec_target.as_ref().copied());
             if exec_out.slot == slot && exec_out.block_id == exec_target.as_ref().copied() {
                 // speculative execution front result matches what we want to compute
 
@@ -267,6 +269,7 @@ impl ExecutionThread {
         }
 
         // speculative cache mismatch
+        // HERE
         info!("speculative execution cache mismatch: resetting the cache");
 
         // clear the speculative execution output cache completely
