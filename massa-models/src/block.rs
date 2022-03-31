@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use std::convert::TryInto;
 use std::fmt::Formatter;
 use std::str::FromStr;
+use tracing::{info};
 
 const BLOCK_ID_STRING_PREFIX: &str = "BLO";
 
@@ -105,12 +106,41 @@ impl BlockId {
 }
 
 /// block
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Block {
     /// signed header
     pub header: SignedHeader,
     /// operations
     pub operations: Vec<SignedOperation>,
+}
+
+use std::sync::Mutex;
+use std::collections::HashMap;
+use lazy_static::lazy_static;
+use std::backtrace::Backtrace;
+use std::sync::atomic::AtomicI64;
+
+lazy_static! {
+    static ref CLONE_COUNT: AtomicI64 = AtomicI64::new(0);
+    static ref BACKTRACES: Mutex<HashMap<String, u32>> = {
+        Mutex::new(HashMap::new())
+    };
+}
+
+impl Clone for Block {
+    fn clone(&self) -> Self {
+        let traces: Vec<String> = Backtrace::force_capture().frames()[1..7].iter().map(|f| format!("{:#?}\n", f)).collect();
+        let trace = traces.join(",");
+        let mut lock = BACKTRACES.lock().unwrap();
+        let entry = lock.entry(trace).or_insert(0);
+        *entry += 1;
+        info!("Backtraces = {:?}", lock);
+        info!("Clone block count = {}", CLONE_COUNT.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1);
+        Self {
+            header: self.header.clone(),
+            operations: self.operations.clone()
+        }
+    }
 }
 
 impl Block {
