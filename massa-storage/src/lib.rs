@@ -7,6 +7,7 @@ use massa_models::{Block, BlockId};
 use parking_lot::RwLock;
 use std::collections::hash_map::Entry;
 use std::sync::Arc;
+use tracing::info;
 
 /// Stored block: block + serialized block + (serialized header)
 #[derive(Debug)]
@@ -40,6 +41,8 @@ impl Storage {
                 };
                 let to_store = Arc::new(RwLock::new(stored_block));
                 entry.insert(to_store);
+                let read = self.blocks.read();
+                info!("new insert storage len = {}", read.len());
             }
         }
     }
@@ -56,5 +59,7 @@ impl Storage {
         for id in block_ids {
             blocks.remove(id);
         }
+        let read = self.blocks.read();
+        info!("new removes storage len = {}", read.len());
     }
 }
