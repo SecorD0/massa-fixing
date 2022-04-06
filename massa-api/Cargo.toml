@@ -13,7 +13,7 @@ jsonrpc-derive = "18.0"
 jsonrpc-http-server = "18.0"
 thiserror = "1.0"
 tokio = { version = "1.15", features = ["full"] }
-tracing = { version = "0.1", features = ["release_max_level_debug"] }
+tracing = { version = "0.1", features = ["max_level_debug", "release_max_level_debug"] }
 # custom modules
 massa_consensus_exports = { path = "../massa-consensus-exports" }
 massa_execution_exports = { path = "../massa-execution-exports" }
