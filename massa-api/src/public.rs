@@ -32,6 +32,7 @@ use massa_pool::PoolCommandSender;
 use massa_signature::{derive_public_key, generate_random_private_key, PrivateKey};
 use massa_time::MassaTime;
 use std::net::{IpAddr, SocketAddr};
+use tracing::debug;
 
 impl API<Public> {
     /// generate a new public api
@@ -234,6 +235,7 @@ impl Endpoints for API<Public> {
     }
 
     fn get_status(&self) -> BoxFuture<Result<NodeStatus, ApiError>> {
+        debug!("api::get_status::start");
         let consensus_command_sender = self.0.consensus_command_sender.clone();
         let network_command_sender = self.0.network_command_sender.clone();
         let network_config = self.0.network_settings.clone();
@@ -244,6 +246,7 @@ impl Endpoints for API<Public> {
         let node_id = self.0.node_id;
         let config = CompactConfig::default();
         let closure = async move || {
+            debug!("api::get_status::async_start");
             let now = MassaTime::compensated_now(compensation_millis)?;
             let last_slot = get_latest_block_slot_at_timestamp(
                 consensus_settings.thread_count,
@@ -258,6 +261,7 @@ impl Endpoints for API<Public> {
                 pool_command_sender.get_pool_stats(),
                 network_command_sender.get_peers()
             );
+            debug!("api::get_status::async_end");
             Ok(NodeStatus {
                 node_id,
                 node_ip: network_config.routable_ip,
@@ -282,6 +286,7 @@ impl Endpoints for API<Public> {
                     .get_cycle(consensus_settings.periods_per_cycle),
             })
         };
+        debug!("api::get_status::end");
         Box::pin(closure())
     }
 

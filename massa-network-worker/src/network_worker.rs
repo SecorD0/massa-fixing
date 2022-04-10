@@ -174,9 +174,12 @@ impl NetworkWorker {
                     * out connecting events (no problem if a bit late)
                     * listener event (HIGH FREQUENCY) non-critical
             */
+
+            debug!("network::select_loop_start");
             tokio::select! {
                 // listen to manager commands
                 cmd = self.controller_manager_rx.recv() => {
+                    debug!("network::select_loop::ctl_mgr_recv");
                     match cmd {
                         None => break,
                         Some(_) => {}
@@ -185,6 +188,7 @@ impl NetworkWorker {
 
                 // event received from a node
                 evt = self.node_event_rx.recv() => {
+                    debug!("network::select_loop::node_evt_recv");
                     self.on_node_event(
                         evt.ok_or_else(|| NetworkError::ChannelError("node event rx failed".into()))?
                     ).await?
@@ -192,11 +196,13 @@ impl NetworkWorker {
 
                 // incoming command
                 Some(cmd) = self.controller_command_rx.recv() => {
+                    debug!("network::select_loop::ctl_cmd_recv");
                     self.manage_network_command(cmd).await?;
                 },
 
                 // wake up interval
                 _ = wakeup_interval.tick() => {
+                    debug!("network::select_loop::wakeup_tick");
                     self.peer_info_db.update()?; // notify tick to peer db
 
                     need_connect_retry = true; // retry out connections
@@ -210,10 +216,13 @@ impl NetworkWorker {
                 },
 
                 // Managing handshakes that return a PeerList
-                Some(_) = self.handshake_peer_list_futures.next() => {},
+                Some(_) = self.handshake_peer_list_futures.next() => {
+                    debug!("network::select_loop::handshake_fut");
+                },
 
                 // node closed
                 Some(evt) = self.node_worker_handles.next() => {
+                    debug!("network::select_loop::node_worker_handler");
                     let (node_id, res) = evt?;  // ? => when a node worker panics
                     let reason = match res {
                         Ok(r) => {
@@ -250,6 +259,7 @@ impl NetworkWorker {
 
                 // out-connector event
                 Some((ip_addr, res)) = out_connecting_futures.next() => {
+                    debug!("network::select_loop::node_evt_recv::out_connect_fut");
                     need_connect_retry = true; // retry out connections
                     self.manage_out_connections(
                         res,
@@ -260,13 +270,17 @@ impl NetworkWorker {
 
                 // listener socket received
                 res = self.listener.accept() => {
+                    debug!("network::select_loop::accept");
                     self.manage_in_connections(
                         res,
                         &mut cur_connection_id,
                     ).await?
                 }
             }
+            debug!("network::select_loop::finish");
         }
+
+        debug!("network::select_loop::quit");
 
         // wait for out-connectors to finish
         while out_connecting_futures.next().await.is_some() {}

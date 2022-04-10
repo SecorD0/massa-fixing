@@ -372,26 +372,31 @@ impl BootstrapServer {
         */
         loop {
             massa_trace!("bootstrap.lib.run.select", {});
+            debug!("bootstrap::select_loop::start");
             tokio::select! {
                 // managed commands
                 _ = self.manager_rx.recv() => {
+                    debug!("bootstrap::select_loop::mgr_rx");
                     massa_trace!("bootstrap.lib.run.select.manager", {});
                     break
                 },
 
                 // cache cleanup timeout
                 _ = &mut cache_timer, if bootstrap_data.is_some() => {
+                    debug!("bootstrap::select_loop::cache_timer");
                     massa_trace!("bootstrap.lib.run.cache_unload", {});
                     bootstrap_data = None;
                 }
 
                 // bootstrap session finished
                 Some(_) = bootstrap_sessions.next() => {
+                    debug!("bootstrap::select_loop::sessions_next");
                     massa_trace!("bootstrap.session.finished", {"active_count": bootstrap_sessions.len()});
                 }
 
                 // listener
                 Ok((dplx, remote_addr)) = listener.accept() => if bootstrap_sessions.len() < self.bootstrap_settings.max_simultaneous_bootstraps as usize {
+                    debug!("bootstrap::select_loop::accept");
                     massa_trace!("bootstrap.lib.run.select.accept", {"remote_addr": remote_addr});
                     let now = Instant::now();
 
@@ -454,7 +459,9 @@ impl BootstrapServer {
                     debug!("did not bootstrap {}: no available slots", remote_addr);
                 },
             }
+            debug!("bootstrap::select_loop::end");
         }
+        debug!("bootstrap::select_loop::quit");
 
         // wait for bootstrap sessions to finish
         while bootstrap_sessions.next().await.is_some() {}

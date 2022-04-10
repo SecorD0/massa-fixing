@@ -296,9 +296,11 @@ impl ProtocolWorker {
                     * network events (high frequency): process incoming events
                     * ask for blocks (timing not important)
             */
+            debug!("protocol::select_loop::start");
             tokio::select! {
                 // listen to management commands
                 cmd = self.controller_manager_rx.recv() => {
+                    debug!("protocol::select_loop::ctl_mgr_recv");
                     massa_trace!("protocol.protocol_worker.run_loop.controller_manager_rx", { "cmd": cmd });
                     match cmd {
                         None => break,
@@ -308,35 +310,42 @@ impl ProtocolWorker {
 
                 // listen to incoming commands
                 Some(cmd) = self.controller_command_rx.recv() => {
+                    debug!("protocol::select_loop::ctl_cmd_recv");
                     massa_trace!("protocol.protocol_worker.run_loop.protocol_command_rx", { "cmd": cmd });
                     self.process_command(cmd, &mut block_ask_timer).await?;
                 }
 
                 // listen to network controller events
                 evt = self.network_event_receiver.wait_event() => {
+                    debug!("protocol::select_loop::net_evt");
                     massa_trace!("protocol.protocol_worker.run_loop.network_event_rx", {});
                     self.on_network_event(evt?, &mut block_ask_timer).await?;
                 }
 
                 // block ask timer
                 _ = &mut block_ask_timer => {
+                    debug!("protocol::select_loop::block_ask_timer");
                     massa_trace!("protocol.protocol_worker.run_loop.block_ask_timer", { });
                     self.update_ask_block(&mut block_ask_timer).await?;
                 }
 
                 // operation ask timer
                 _ = &mut operation_batch_proc_period_timer => {
+                    debug!("protocol::select_loop::batch_proc_timer");
                     massa_trace!("protocol.protocol_worker.run_loop.operation_ask_timer", { });
                     self.update_ask_operation(&mut operation_batch_proc_period_timer).await?;
                 }
                 // operation prune timer
                 _ = &mut operation_prune_timer => {
+                    debug!("protocol::select_loop::op_prune_timer");
                     massa_trace!("protocol.protocol_worker.run_loop.operation_prune_timer", { });
                     self.prune_asked_operations(&mut operation_prune_timer)?;
                 }
             }
+            debug!("protocol::select_loop::end");
             massa_trace!("protocol.protocol_worker.run_loop.end", {});
         }
+        debug!("protocol::select_loop::quit");
 
         Ok(self.network_event_receiver)
     }

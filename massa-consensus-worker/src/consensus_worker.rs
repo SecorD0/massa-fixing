@@ -229,9 +229,11 @@ impl ConsensusWorker {
                     * prune timer: low freq, timing not important but should not wait too long
                     * receive protocol events (high freq)
             */
+            debug!("consensus::select_loop::start");
             tokio::select! {
                 // listen to manager commands
                 cmd = self.channels.controller_manager_rx.recv() => {
+                    debug!("consensus::select_loop::mgr_rx");
                     massa_trace!("consensus.consensus_worker.run_loop.select.manager", {});
                     match cmd {
                     None => break,
@@ -240,12 +242,14 @@ impl ConsensusWorker {
 
                 // listen consensus commands
                 Some(cmd) = self.channels.controller_command_rx.recv() => {
+                    debug!("consensus::select_loop::ctl_cmd_rx");
                     massa_trace!("consensus.consensus_worker.run_loop.consensus_command", {});
                     self.process_consensus_command(cmd).await?
                 },
 
                 // slot timer
                 _ = &mut next_slot_timer => {
+                    debug!("consensus::select_loop::slot_timer");
                     massa_trace!("consensus.consensus_worker.run_loop.select.slot_tick", {});
                     if let Some(end) = self.cfg.end_timestamp {
                         if MassaTime::compensated_now(self.clock_compensation)? > end {
@@ -258,6 +262,7 @@ impl ConsensusWorker {
 
                 // prune timer
                 _ = &mut prune_timer=> {
+                    debug!("consensus::select_loop::prune_timer");
                     massa_trace!("consensus.consensus_worker.run_loop.prune_timer", {});
                     // prune block db
                     let _discarded_final_blocks = self.block_db.prune()?;
@@ -267,7 +272,8 @@ impl ConsensusWorker {
                 }
 
                 // receive protocol controller events
-                evt = self.channels.protocol_event_receiver.wait_event() =>{
+                evt = self.channels.protocol_event_receiver.wait_event() => {
+                    debug!("consensus::select_loop::protocol_recv");
                     massa_trace!("consensus.consensus_worker.run_loop.select.protocol_event", {});
                     match evt {
                         Ok(event) => self.process_protocol_event(event).await?,
@@ -275,7 +281,9 @@ impl ConsensusWorker {
                     }
                 },
             }
+            debug!("consensus::select_loop::end");
         }
+        debug!("consensus::select_loop::finish");
         // after this curly brace you can find the end of the loop
         Ok(self.channels.protocol_event_receiver)
     }
