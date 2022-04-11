@@ -55,7 +55,7 @@ pub async fn start_protocol_controller(
     ),
     ProtocolError,
 > {
-    debug!("starting protocol controller");
+    debug!("protocol_debug: starting protocol controller");
 
     // launch worker
     let (controller_event_tx, event_rx) = mpsc::channel::<ProtocolEvent>(CHANNEL_SIZE);
@@ -91,7 +91,7 @@ pub async fn start_protocol_controller(
             }
         }
     });
-    debug!("protocol controller ready");
+    debug!("protocol_debug: protocol controller ready");
     Ok((
         ProtocolCommandSender(command_tx),
         ProtocolEventReceiver(event_rx),
@@ -359,6 +359,7 @@ impl ProtocolWorker {
                     "protocol.protocol_worker.process_command.integrated_block.begin",
                     { "block_id": block_id }
                 );
+                debug!("protocol_debug: Integrated block started");
                 let now = Instant::now();
                 for (node_id, node_info) in self.active_nodes.iter_mut() {
                     // if we know that a node wants a block we send the full block
@@ -410,6 +411,7 @@ impl ProtocolWorker {
                     "protocol.protocol_worker.process_command.integrated_block.end",
                     {}
                 );
+                debug!("protocol_debug: Integrated block ended");
             }
             ProtocolCommand::AttackBlockDetected(block_id) => {
                 // Ban all the nodes that sent us this object.
@@ -417,6 +419,7 @@ impl ProtocolWorker {
                     "protocol.protocol_worker.process_command.attack_block_detected.begin",
                     { "block_id": block_id }
                 );
+                debug!("protocol_debug: Attack block started");
                 let to_ban: Vec<NodeId> = self
                     .active_nodes
                     .iter()
@@ -433,8 +436,10 @@ impl ProtocolWorker {
                     "protocol.protocol_worker.process_command.attack_block_detected.end",
                     {}
                 );
+                debug!("protocol_debug: Attack block ended");
             }
             ProtocolCommand::GetBlocksResults(results) => {
+                debug!("protocol_debug: Get blocks results started");
                 for (block_id, block_info) in results.into_iter() {
                     massa_trace!("protocol.protocol_worker.process_command.found_block.begin", { "block_id": block_id, "block_info": block_info });
                     match block_info {
@@ -500,8 +505,10 @@ impl ProtocolWorker {
                         }
                     }
                 }
+                debug!("protocol_debug: Get blocks results ended");
             }
             ProtocolCommand::WishlistDelta { new, remove } => {
+                debug!("protocol_debug: Wishlist delta started");
                 massa_trace!("protocol.protocol_worker.process_command.wishlist_delta.begin", { "new": new, "remove": remove });
                 self.stop_asking_blocks(remove)?;
                 self.block_wishlist.extend(new);
@@ -510,32 +517,42 @@ impl ProtocolWorker {
                     "protocol.protocol_worker.process_command.wishlist_delta.end",
                     {}
                 );
+                debug!("protocol_debug: Wishlist delta ended");
             }
             ProtocolCommand::PropagateOperations(operation_ids) => {
                 massa_trace!(
                     "protocol.protocol_worker.process_command.propagate_operations.begin",
                     { "operation_ids": operation_ids }
                 );
+                debug!("protocol_debug: Propagate operations started. operations ids = {:?}", operation_ids);
                 self.checked_operations
                     .extend(operation_ids.iter().cloned());
+                debug!("protocol_debug: Extend checked operations");
                 for (node, node_info) in self.active_nodes.iter_mut() {
+                    debug!("protocol_debug: Calculate new operations to send to node: {}", node);
                     let new_ops: OperationIds = operation_ids
                         .iter()
                         .filter(|id| !node_info.knows_op(*id))
                         .copied()
                         .collect();
+                    debug!("protocol_debug: Calculated {} new operations to send to node: {}", new_ops.len(), node);
                     node_info.insert_known_ops(
                         new_ops.iter().cloned().collect(),
                         self.protocol_settings.max_known_ops_size,
                     );
+                    debug!("protocol_debug: Inserted new operations in insert_known ops to send to node: {}", node);
                     if !new_ops.is_empty() {
+                        debug!("protocol_debug: Send new operations to node: {}", node);
                         self.network_command_sender
                             .send_operations_batch(*node, new_ops)
                             .await?;
+                        debug!("protocol_debug: Sent new operations to node: {}", node);
                     }
                 }
+                debug!("protocol_debug: Propagate operations ended");
             }
             ProtocolCommand::PropagateEndorsements(endorsements) => {
+                debug!("protocol_debug: Propagate endorsements started");
                 massa_trace!(
                     "protocol.protocol_worker.process_command.propagate_endorsements.begin",
                     { "endorsements": endorsements }
@@ -560,10 +577,13 @@ impl ProtocolWorker {
                             .await?;
                     }
                 }
+                debug!("protocol_debug: Propagate endorsements ended");
             }
             ProtocolCommand::GetOperationsResults((node_id, operations)) => {
+                debug!("protocol_debug: Get operations result started");
                 self.on_operation_results_from_pool(node_id, operations)
                     .await?;
+                debug!("protocol_debug: Get operations result ended");
             }
         }
         massa_trace!("protocol.protocol_worker.process_command.end", {});
