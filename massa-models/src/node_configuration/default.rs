@@ -36,22 +36,10 @@ pub const CHANNEL_SIZE: usize = 1024;
 
 lazy_static::lazy_static! {
     /// Time in milliseconds when the blockclique started.
-    pub static ref GENESIS_TIMESTAMP: MassaTime = if cfg!(feature = "sandbox") {
-        std::env::var("GENESIS_TIMESTAMP").map(|timestamp| timestamp.parse::<u64>().unwrap().into()).unwrap_or_else(|_|
-            MassaTime::now()
-                .unwrap()
-                .saturating_add(MassaTime::from(1000 * 10))
-        )
-    } else {
-        1651795200000.into()  // Fri May 06 2022 00:00:00 GMT+0000
-    };
+    pub static ref GENESIS_TIMESTAMP: MassaTime = 1654641249719.into();
 
     /// TESTNET: time when the blockclique is ended.
-    pub static ref END_TIMESTAMP: Option<MassaTime> = if cfg!(feature = "sandbox") {
-        None
-    } else {
-        Some(1654034400000.into())  // Tue May 31 2022 22:00:00 GMT+0000
-    };
+    pub static ref END_TIMESTAMP: Option<MassaTime> = None;
     /// `PrivateKey` to sign genesis blocks.
     pub static ref GENESIS_KEY: PrivateKey = "2Rmcp5w4MjcTQvPJeCV14UQf75XjKwDVJF14F2V1o5Kr3i9LZL"
         .parse()
@@ -59,15 +47,7 @@ lazy_static::lazy_static! {
     /// number of cycle misses (strictly) above which stakers are deactivated
     pub static ref POS_MISS_RATE_DEACTIVATION_THRESHOLD: Ratio<u64> = Ratio::new(7, 10);
     /// node version
-    pub static ref VERSION: Version = {
-        if cfg!(feature = "sandbox") {
-            "SAND.0.0"
-        } else {
-            "TEST.10.1"
-        }
-        .parse()
-        .unwrap()
-    };
+    pub static ref VERSION: Version = "LABN.0.0".parse().unwrap();
 }
 
 #[cfg(feature = "sandbox")]
@@ -101,7 +81,7 @@ pub const DELTA_F0: u64 = 640;
 /// Maximum number of operations per block
 pub const MAX_OPERATIONS_PER_BLOCK: u32 = 409600;
 /// Maximum block size in bytes
-pub const MAX_BLOCK_SIZE: u32 = 409600;
+pub const MAX_BLOCK_SIZE: u32 = 100000000;
 /// Maximum capacity of the asynchronous messages pool
 pub const MAX_ASYNC_POOL_LENGTH: u64 = 10_000;
 /// Maximum operation validity period count
@@ -145,9 +125,9 @@ pub const BOOTSTRAP_RANDOMNESS_SIZE_BYTES: usize = 32;
 //
 
 /// Maximum of GAS allowed for a block
-pub const MAX_GAS_PER_BLOCK: u64 = 1_000_000_000;
+pub const MAX_GAS_PER_BLOCK: u64 = 2000000000;
 /// Maximum of GAS allowed for asynchronous messages execution on one slot
-pub const MAX_ASYNC_GAS: u64 = 1_000_000_000;
+pub const MAX_ASYNC_GAS: u64 = 2000000000;
 
 //
 // Constants used in network
